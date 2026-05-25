@@ -1,6 +1,6 @@
 {
   "name": "kxco-pq-audit",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Tamper-evident post-quantum audit log: ML-DSA-65-signed, hash-chained operation entries. Prove cryptographic operations happened, in order, and were not altered. Memory and append-only file backends.",
   "keywords": [
     "post-quantum",
@@ -11,7 +11,15 @@
     "fips-204",
     "tamper-evident",
     "compliance",
-    "kxco"
+    "kxco",
+    "hash-chain",
+    "ndjson",
+    "audit-trail",
+    "regulatory",
+    "integrity",
+    "immutable-log",
+    "signed-log",
+    "sequence"
   ],
   "license": "Apache-2.0",
   "author": "KXCO by Knightsbridge <hello@kxco.ai>",
@@ -51,6 +59,7 @@
   "scripts": {
     "test": "node --test --test-timeout=30000 test/audit.test.js"
   },
+  "funding": "https://kxco.ai",
   "publishConfig": {
     "provenance": true,
     "access": "public"
