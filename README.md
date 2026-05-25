@@ -1,5 +1,10 @@
 # kxco-pq-audit
 
+[![npm](https://img.shields.io/npm/v/kxco-pq-audit?label=npm&color=b0964f)](https://www.npmjs.com/package/kxco-pq-audit)
+[![Socket](https://socket.dev/api/badge/npm/package/kxco-pq-audit)](https://socket.dev/npm/package/kxco-pq-audit)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
+[![node](https://img.shields.io/node/v/kxco-pq-audit.svg)](https://nodejs.org)
+
 Tamper-evident post-quantum audit log. Every operation produces an ML-DSA-65-signed entry chained to the previous via SHA-256. `verify()` replays the entire log — any gap, reorder, or edit breaks the chain or a signature. Memory and append-only NDJSON file backends.
 
 ## Install
@@ -72,6 +77,18 @@ await log.export()                              // → entry[]
 | [`kxco-pq-hsm`](https://www.npmjs.com/package/kxco-pq-hsm) | HSM-backed key management |
 | [`kxco-pq-attest`](https://www.npmjs.com/package/kxco-pq-attest) | Payload attestation |
 | [`kxco-pq-sdk`](https://www.npmjs.com/package/kxco-pq-sdk) | `AuditedHsm` wires HSM + audit automatically |
+
+## Security
+
+Entry signing uses [Noble post-quantum](https://github.com/paulmillr/noble-post-quantum) ML-DSA-65 and [Noble hashes](https://github.com/paulmillr/noble-hashes) SHA-256 — independently audited by Cure53 (2024). The hash chain means a compromised or deleted entry cannot be hidden: any gap breaks verification of every subsequent entry.
+
+To report a vulnerability, open a [private security advisory](https://github.com/JackKXCO/kxco-pq-audit/security/advisories/new) or email **security@kxco.ai**.
+
+## Funding
+
+Maintained by **Shayne Heffernan** and **John Heffernan** at [KXCO by Knightsbridge](https://kxco.ai).
+
+[Knightsbridge Law](https://knightsbridge.law) · [target150.com](https://target150.com) · [livetradingnews.com](https://livetradingnews.com)
 
 ## License
 

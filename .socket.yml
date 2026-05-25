@@ -1,0 +1,23 @@
+version: 2
+
+# https://docs.socket.dev/docs/socket-yml
+
+issues:
+  cve:
+    action: error
+  malware:
+    action: error
+  protestware:
+    action: error
+  new-author:
+    action: warn
+  install-scripts:
+    action: warn
+  telemetry:
+    action: warn
+
+# kxco-post-quantum — maintained by this organisation.
+# @noble/hashes — audited by Cure53 (2024), no transitive deps.
+ignore:
+  - "kxco-post-quantum"
+  - "@noble/hashes"
