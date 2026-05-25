@@ -1,6 +1,6 @@
 {
   "name": "kxco-pq-audit",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Tamper-evident post-quantum audit log: ML-DSA-65-signed, hash-chained operation entries. Prove cryptographic operations happened, in order, and were not altered. Memory and append-only file backends.",
   "keywords": [
     "post-quantum",
@@ -28,9 +28,14 @@
     "url": "https://github.com/JackKXCO/kxco-pq-audit/issues"
   },
   "type": "module",
-  "main": "src/index.js",
+  "sideEffects": false,
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
   "exports": {
-    ".": "./src/index.js"
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    }
   },
   "files": [
     "src",
@@ -47,6 +52,7 @@
     "test": "node --test --test-timeout=30000 test/audit.test.js"
   },
   "publishConfig": {
+    "provenance": true,
     "access": "public"
   }
 }
