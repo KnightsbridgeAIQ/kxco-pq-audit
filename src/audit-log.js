@@ -20,12 +20,18 @@ function signingBytes(seq, timestamp, operation, metadata, prevHash) {
 export class AuditLog {
   #keypair
   #entries = []
+  #chain
+  #checkpointEvery
+  #institutionKid
 
-  constructor({ keypair }) {
+  constructor({ keypair, chain, checkpointEvery = 100, institutionKid } = {}) {
     if (!keypair?.secretKey || !keypair?.publicKey) {
       throw new KxcoPqAuditError('keypair with secretKey and publicKey is required')
     }
-    this.#keypair = keypair
+    this.#keypair         = keypair
+    this.#chain           = chain           ?? null
+    this.#checkpointEvery = checkpointEvery
+    this.#institutionKid  = institutionKid  ?? null
   }
 
   async append(operation, metadata = {}) {
@@ -41,6 +47,16 @@ export class AuditLog {
 
     const entry = { seq, timestamp: ts, operation, metadata, prevHash: prev, signature: b64url(sig) }
     await this._store(entry)
+
+    const entryCount = seq + 1
+    if (this.#chain && entryCount % this.#checkpointEvery === 0) {
+      const rootHash = hashEntry(entry)
+      const kid      = this.#institutionKid ?? b64url(this.#keypair.publicKey).slice(0, 16)
+      this.#chain.anchorAuditRoot({ rootHash, entryCount }).catch((err) => {
+        console.warn(`[kxco-pq-audit] chain checkpoint failed (entry ${entryCount}): ${err.message}`)
+      })
+    }
+
     return entry
   }
 
