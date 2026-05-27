@@ -23,11 +23,22 @@ export interface AuditVerifyFailure {
 
 export type AuditVerifyResult = AuditVerifySuccess | AuditVerifyFailure
 
+/** Minimal chain client interface — accepts kxco-pq-chain KxcoChain instances */
+export interface AuditChainClient {
+  anchorAuditRoot(opts: { rootHash: string; entryCount: number }): Promise<unknown>
+}
+
 export interface AuditLogOptions {
   keypair: {
     publicKey: Uint8Array | Buffer
     secretKey: Uint8Array | Buffer
   }
+  /** kxco-pq-chain KxcoChain instance — enables on-chain audit checkpointing. */
+  chain?: AuditChainClient
+  /** Anchor a checkpoint every N entries (default: 100). Ignored when chain is absent. */
+  checkpointEvery?: number
+  /** Institution kid used to tag the anchor. Derived from keypair if omitted. */
+  institutionKid?: string
 }
 
 /**
