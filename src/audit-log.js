@@ -50,8 +50,7 @@ export class AuditLog {
 
     const entryCount = seq + 1
     if (this.#chain && entryCount % this.#checkpointEvery === 0) {
-      const rootHash = hashEntry(entry)
-      const kid      = this.#institutionKid ?? b64url(this.#keypair.publicKey).slice(0, 16)
+      const rootHash = Buffer.from(sha256(enc.encode(JSON.stringify(entry)))).toString('hex')
       this.#chain.anchorAuditRoot({ rootHash, entryCount }).catch((err) => {
         console.warn(`[kxco-pq-audit] chain checkpoint failed (entry ${entryCount}): ${err.message}`)
       })
