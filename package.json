@@ -1,71 +1,71 @@
 {
-  "name": "kxco-pq-audit",
-  "version": "1.1.0",
-  "description": "Tamper-evident post-quantum audit log: ML-DSA-65-signed, hash-chained operation entries. Prove cryptographic operations happened, in order, and were not altered. Memory and append-only file backends.",
-  "keywords": [
-    "post-quantum",
-    "pqc",
-    "audit-log",
-    "ml-dsa",
-    "nist",
-    "fips-204",
-    "tamper-evident",
-    "compliance",
-    "kxco",
-    "hash-chain",
-    "ndjson",
-    "audit-trail",
-    "regulatory",
-    "integrity",
-    "immutable-log",
-    "signed-log",
-    "sequence"
-  ],
-  "license": "Apache-2.0",
-  "author": "KXCO by Knightsbridge <hello@kxco.ai>",
-  "contributors": [
-    {
-      "name": "Shayne Heffernan"
-    },
-    {
-      "name": "John Heffernan"
-    }
-  ],
-  "homepage": "https://kxco.ai",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/JackKXCO/kxco-pq-audit.git"
-  },
-  "bugs": {
-    "url": "https://github.com/JackKXCO/kxco-pq-audit/issues"
-  },
-  "type": "module",
-  "sideEffects": false,
-  "main": "./src/index.js",
-  "types": "./src/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./src/index.d.ts",
-      "import": "./src/index.js"
-    }
-  },
-  "files": [
-    "src",
-    "LICENSE"
-  ],
-  "engines": {
-    "node": ">=20.19"
-  },
-  "dependencies": {
-    "@noble/hashes": "^1.7.0",
-    "kxco-post-quantum": "^1.1.6"
-  },
-  "scripts": {
-    "test": "node --test --test-timeout=30000 test/audit.test.js"
-  },
-  "funding": "https://kxco.ai",
-  "publishConfig": {
-    "provenance": true,
-    "access": "public"
-  }
+    "name":  "kxco-pq-audit",
+    "version":  "1.1.1",
+    "description":  "Tamper-evident post-quantum audit log: ML-DSA-65-signed, hash-chained operation entries. Prove cryptographic operations happened, in order, and were not altered. Memory and append-only file backends.",
+    "keywords":  [
+                     "post-quantum",
+                     "pqc",
+                     "audit-log",
+                     "ml-dsa",
+                     "nist",
+                     "fips-204",
+                     "tamper-evident",
+                     "compliance",
+                     "kxco",
+                     "hash-chain",
+                     "ndjson",
+                     "audit-trail",
+                     "regulatory",
+                     "integrity",
+                     "immutable-log",
+                     "signed-log",
+                     "sequence"
+                 ],
+    "license":  "Apache-2.0",
+    "author":  "KXCO by Knightsbridge \u003chello@kxco.ai\u003e",
+    "contributors":  [
+                         {
+                             "name":  "Shayne Heffernan"
+                         },
+                         {
+                             "name":  "John Heffernan"
+                         }
+                     ],
+    "homepage":  "https://kxco.ai",
+    "repository":  {
+                       "type":  "git",
+                       "url":  "https://github.com/JackKXCO/kxco-pq-audit.git"
+                   },
+    "bugs":  {
+                 "url":  "https://github.com/JackKXCO/kxco-pq-audit/issues"
+             },
+    "type":  "module",
+    "sideEffects":  false,
+    "main":  "./src/index.js",
+    "types":  "./src/index.d.ts",
+    "exports":  {
+                    ".":  {
+                              "types":  "./src/index.d.ts",
+                              "import":  "./src/index.js"
+                          }
+                },
+    "files":  [
+                  "src",
+                  "LICENSE"
+              ],
+    "engines":  {
+                    "node":  "\u003e=20.19"
+                },
+    "dependencies":  {
+                         "@noble/hashes":  "^1.7.0",
+                         "kxco-post-quantum":  "^1.1.6"
+                     },
+    "scripts":  {
+                    "test":  "node --test --test-timeout=30000 test/audit.test.js"
+                },
+    "funding":  "https://kxco.ai",
+    "publishConfig":  {
+                          "provenance":  true,
+                          "access":  "public"
+                      }
 }
