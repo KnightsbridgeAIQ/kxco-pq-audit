@@ -5,8 +5,8 @@ import { KxcoPqAuditError } from '../errors.js'
 export class FileAuditLog extends AuditLog {
   #path
 
-  constructor({ keypair, path }) {
-    super({ keypair })
+  constructor({ keypair, path, chain, checkpointEvery, institutionKid }) {
+    super({ keypair, chain, checkpointEvery, institutionKid })
     if (!path) throw new KxcoPqAuditError('FileAuditLog: path is required')
     this.#path = path
   }

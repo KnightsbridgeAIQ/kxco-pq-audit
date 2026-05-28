@@ -1,7 +1,7 @@
 {
     "name":  "kxco-pq-audit",
-    "version":  "1.1.1",
-    "description":  "Tamper-evident post-quantum audit log: ML-DSA-65-signed, hash-chained operation entries. Prove cryptographic operations happened, in order, and were not altered. Memory and append-only file backends.",
+    "version":  "1.1.2",
+    "description":  "Tamper-evident post-quantum audit log for regulated institutions. ML-DSA-65-signed, SHA-256 hash-chained entries. Any tampering breaks the chain. Optional Armature L1 checkpoint anchoring via the KXCO relay.",
     "keywords":  [
                      "post-quantum",
                      "pqc",
