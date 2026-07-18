@@ -147,7 +147,7 @@ The checkpoint provides an on-chain timestamp proving that at least N entries ex
 
 Entry signing uses [Noble post-quantum](https://github.com/paulmillr/noble-post-quantum) ML-DSA-65 (NIST FIPS 204) and [Noble hashes](https://github.com/paulmillr/noble-hashes) SHA-256 — independently audited by Cure53 (2024). The hash chain means a compromised or deleted entry cannot be hidden: any gap breaks verification of every subsequent entry.
 
-To report a vulnerability, open a [private security advisory](https://github.com/JackKXCO/kxco-pq-audit/security/advisories/new) or email **security@kxco.ai**.
+To report a vulnerability, open a [private security advisory](https://github.com/KnightsbridgeAIQ/kxco-pq-audit/security/advisories/new) or email **security@kxco.ai**.
 
 ## License
 
