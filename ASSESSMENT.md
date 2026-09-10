@@ -127,8 +127,8 @@ and published in the README:
 | signature per entry | 129 | 4,794 | 45.7 MB | 20.1 s |
 | signature per run | 46,544 | 367 | 3.5 MB | 0.11 s |
 
-That is 361x the append rate, a thirteenth of the bytes and verification in
-about a two-hundredth of the time, for the same tamper evidence: every entry is
+That is 361x the append rate, a thirteenth of the bytes and verification 183x
+faster, for the same tamper evidence: every entry is
 still hash-chained, and the signature that binds the run to the key is produced
 once by `seal()` instead of once per entry. A deployment that dismissed
 per-entry signing on cost grounds should read the second row before deciding
