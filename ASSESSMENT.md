@@ -50,9 +50,17 @@ separately:
 
 **Start and update.** This package has no release signing of its own. The
 primitives package signs its release assets with ML-DSA-65 against a committed
-public key; this one is an ordinary npm package published through CI with npm
-provenance and nothing further. That is a real difference between the two and
-should not be read across.
+public key, and that is the stronger control of the two; it should not be read
+across to this one.
+
+What this package's releases do carry is not nothing:
+
+- A **SLSA provenance attestation** on every release, tying the tarball to the
+  commit and workflow that built it. Verify with `npm audit signatures`.
+- A **CycloneDX SBOM** as a GitHub Release asset at a permanent unauthenticated
+  URL, rather than an expiring build artifact.
+- An **evidence bundle** from `npm run evidence`, recording identity, the test
+  run, the SBOM and the `kxco-post-quantum` version actually installed.
 
 **Retain history: the limitation that matters.** `verify(publicKey)` takes one
 public key and applies it to the whole log. A log whose signing key was rotated
@@ -108,9 +116,23 @@ Changing this is a policy decision with a maintenance cost: an exact pin means
 every primitives release needs a release of this package. It has not been made.
 
 **Ceiling.** No hardware ceiling. One storage backend, and reads are line by
-line, so search belongs in a database you index into rather than here. The
-practical limit is append throughput in default mode, where every entry is
-signed; sealed mode exists because that limit is real.
+line, so search belongs in a database you index into rather than here.
+
+The throughput ceiling is real in default mode and sealed mode removes it, by
+a margin worth stating rather than glossing. Measured over a 10,000 entry run
+and published in the README:
+
+| | entries/s | bytes/entry | 10k run | verify |
+|---|---|---|---|---|
+| signature per entry | 129 | 4,794 | 45.7 MB | 20.1 s |
+| signature per run | 46,544 | 367 | 3.5 MB | 0.11 s |
+
+That is 361x the append rate, a thirteenth of the bytes and verification in
+about a two-hundredth of the time, for the same tamper evidence: every entry is
+still hash-chained, and the signature that binds the run to the key is produced
+once by `seal()` instead of once per entry. A deployment that dismissed
+per-entry signing on cost grounds should read the second row before deciding
+this package cannot carry its volume.
 
 **Roadmap.** No external audit of this package, no bug bounty, no module
 certification. The primitives package publishes its roadmap in `AUDIT.md`;
