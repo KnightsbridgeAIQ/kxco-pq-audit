@@ -1,4 +1,4 @@
-import { mlDsa } from 'kxco-post-quantum'
+import { mlDsa, fingerprint } from 'kxco-post-quantum'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { KxcoPqAuditError } from './errors.js'
 
@@ -27,6 +27,70 @@ function sealBytes(fromSeq, toSeq, prevRoot, rootHash, timestamp) {
 const GENESIS_ROOT = '0'.repeat(64)
 
 /**
+ * Which key signed a record.
+ *
+ * `kid` is deliberately NOT part of the signed bytes. Including it would mean a
+ * new signing-message version, and every log written by this package would stop
+ * verifying under an older reader. Left out, it is a selector rather than a
+ * claim: tampering with it makes verification select the wrong key and fail,
+ * which is the same outcome tampering with anything else already produces. It
+ * cannot make a forged record verify, because that still needs a key the
+ * verifier was given.
+ *
+ * The consequence worth stating: a log written by this version verifies
+ * unchanged under 1.3.x, and a log written by 1.3.x verifies here.
+ */
+function kidOf(publicKey) {
+  return fingerprint(new Uint8Array(publicKey))
+}
+
+/**
+ * Normalise whatever verify() was handed into a candidate list.
+ *
+ * One key keeps the original call shape working. An array is what a log that
+ * outlived a key rotation needs, because no single key signed all of it.
+ */
+function candidatesFrom(publicKey) {
+  const list = Array.isArray(publicKey) ? publicKey : [publicKey]
+  if (list.length === 0) {
+    throw new KxcoPqAuditError('verify: at least one public key is required')
+  }
+  return list.map((pk) => {
+    if (!pk) throw new KxcoPqAuditError('verify: a public key was null or undefined')
+    const bytes = new Uint8Array(pk)
+    return { kid: kidOf(bytes), publicKey: bytes }
+  })
+}
+
+function verifySignature(candidates, recordKid, msg, signatureB64, label) {
+  const sigHex = () => Buffer.from(fromB64url(signatureB64)).toString('hex')
+
+  // A record that names its key is checked against that key and no other.
+  // Falling back to the rest would let a swapped kid pass under a different
+  // key, which is not a forgery but is a confusing thing to report as valid.
+  if (recordKid) {
+    const match = candidates.find((c) => c.kid === recordKid)
+    if (!match) {
+      return {
+        error: `${label}: signed by kid ${recordKid}, which was not among the ` +
+               `${candidates.length} key(s) supplied`,
+      }
+    }
+    let ok
+    try { ok = mlDsa.verify(match.publicKey, msg, sigHex()) } catch { ok = false }
+    return ok ? { kid: match.kid } : { error: `${label}: signature invalid` }
+  }
+
+  // No kid: a log written before this version. Try each key.
+  for (const c of candidates) {
+    let ok
+    try { ok = mlDsa.verify(c.publicKey, msg, sigHex()) } catch { ok = false }
+    if (ok) return { kid: c.kid }
+  }
+  return { error: `${label}: signature invalid` }
+}
+
+/**
  * A run's root: the previous seal's root followed by every entry hash in seq
  * order. Chaining the roots means removing a whole seal breaks the next one,
  * the same way removing an entry breaks the next entry's prevHash.
@@ -46,6 +110,7 @@ export class AuditLog {
   #keypair
   #entries = []
   #sealsList = []
+  #kidCache  = null
   #chain
   #checkpointEvery
   #institutionKid
@@ -76,6 +141,19 @@ export class AuditLog {
 
   /** True when this log signs once per sealed run rather than once per entry. */
   get sealed() { return this.#sealed }
+
+  /** The kid of the key this log signs with. Derived once; it cannot change. */
+  #signingKid() {
+    this.#kidCache ??= kidOf(this.#keypair.publicKey)
+    return this.#kidCache
+  }
+
+  /**
+   * The kid a verifier needs for the records this log is writing. Publishing it
+   * alongside the log means a reader does not have to derive it from a key they
+   * may not have yet.
+   */
+  get signingKid() { return this.#signingKid() }
 
   /**
    * One pass over whatever is already stored, to find the tail and, on a sealed
@@ -128,6 +206,9 @@ export class AuditLog {
     if (!this.#sealed) {
       const msg = signingBytes(seq, ts, operation, metadata, prev)
       entry.signature = b64url(Buffer.from(mlDsa.sign(new Uint8Array(this.#keypair.secretKey), msg), 'hex'))
+      // Which key signed this entry, so a log that outlives a rotation can say
+      // so per entry rather than forcing one key across the whole file.
+      entry.kid = this.#signingKid()
     }
 
     await this._store(entry)
@@ -186,6 +267,9 @@ export class AuditLog {
       timestamp,
       signature,
       institutionKid: this.#institutionKid,
+      // The signing key, distinct from institutionKid, which names the
+      // institution rather than the key that produced this signature.
+      kid: this.#signingKid(),
     }
     await this._storeSeal(seal)
     this.#pending = []
@@ -216,6 +300,9 @@ export class AuditLog {
    * the seal list rather than by the log.
    */
   async verify(publicKey) {
+    const candidates = candidatesFrom(publicKey)
+    const usedKids   = new Set()
+
     const seals = this.#sealed ? await this._seals() : []
     let sealIndex    = 0
     let expectedFrom = 0
@@ -238,10 +325,9 @@ export class AuditLog {
 
       if (!this.#sealed) {
         const msg = signingBytes(entry.seq, entry.timestamp, entry.operation, entry.metadata, entry.prevHash)
-        let ok
-        try { ok = mlDsa.verify(new Uint8Array(publicKey), msg, Buffer.from(fromB64url(entry.signature)).toString('hex')) }
-        catch { ok = false }
-        if (!ok) return { valid: false, error: `entry ${count}: signature invalid` }
+        const res = verifySignature(candidates, entry.kid, msg, entry.signature, `entry ${count}`)
+        if (res.error) return { valid: false, error: res.error }
+        usedKids.add(res.kid)
       } else if (sealIndex < seals.length) {
         const s = seals[sealIndex]
         if (s.fromSeq !== expectedFrom) {
@@ -252,7 +338,7 @@ export class AuditLog {
         }
         if (entry.seq >= s.fromSeq) runHashes.push(hashEntry(entry))
         if (entry.seq === s.toSeq) {
-          const bad = this.#closeSeal(s, sealIndex, prevRoot, runHashes, publicKey)
+          const bad = this.#closeSeal(s, sealIndex, prevRoot, runHashes, candidates, usedKids)
           if (bad) return bad
           prevRoot     = s.rootHash
           expectedFrom = s.toSeq + 1
@@ -266,7 +352,7 @@ export class AuditLog {
       count++
     }
 
-    if (!this.#sealed) return { valid: true, count }
+    if (!this.#sealed) return { valid: true, count, kids: [...usedKids] }
 
     if (sealIndex < seals.length) {
       const s = seals[sealIndex]
@@ -280,18 +366,18 @@ export class AuditLog {
       count,
       sealedThrough: expectedFrom - 1,
       unsealed: count - expectedFrom,
+      kids: [...usedKids],
     }
   }
 
-  #closeSeal(s, index, prevRoot, runHashes, publicKey) {
+  #closeSeal(s, index, prevRoot, runHashes, candidates, usedKids) {
     if (rootOf(prevRoot, runHashes) !== s.rootHash) {
       return { valid: false, error: `seal ${index}: entries do not reproduce rootHash` }
     }
     const msg = sealBytes(s.fromSeq, s.toSeq, s.prevRoot, s.rootHash, s.timestamp)
-    let ok
-    try { ok = mlDsa.verify(new Uint8Array(publicKey), msg, Buffer.from(fromB64url(s.signature)).toString('hex')) }
-    catch { ok = false }
-    if (!ok) return { valid: false, error: `seal ${index}: signature invalid` }
+    const res = verifySignature(candidates, s.kid, msg, s.signature, `seal ${index}`)
+    if (res.error) return { valid: false, error: res.error }
+    usedKids.add(res.kid)
     return null
   }
 

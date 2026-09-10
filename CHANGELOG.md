@@ -1,5 +1,61 @@
 # Changelog
 
+## 1.4.0
+
+A log that outlives its signing key can now be verified as one artefact.
+
+**`verify()` accepts several public keys.** It took one, and applied it to every
+record, so a log whose key rotated part-way through could not be verified at
+all: entries before the rotation were signed by a key `verify` was no longer
+being given. Hierarchical credentials exist so that keys can change, which made
+this the gap most likely to be hit by the deployments least able to work around
+it.
+
+```js
+await log.verify([oldKey.publicKey, newKey.publicKey])
+// { valid: true, count: 3, kids: ['a1b2…', 'c3d4…'] }
+```
+
+**Entries and seals record a `kid`.** Sixteen hex characters naming the key that
+signed them, so verification selects the right key instead of forcing one across
+the whole file. `log.signingKid` exposes the same value for the key a log is
+writing with. `verify()` returns `kids`, every key that actually signed, in the
+order first seen; more than one means the log spans a rotation.
+
+**A missing key is now named.** Supplying too few keys reports which one is
+absent rather than a generic bad signature:
+
+```
+entry 0: signed by kid a1b2c3d4e5f60718, which was not among the 1 key(s) supplied
+```
+
+That message replaces `entry N: signature invalid` for this case. A wrong key
+that shares no kid with the record is still refused; only the wording changed.
+
+**Compatible in both directions, deliberately.** `kid` is not part of the signed
+bytes. Including it would have meant a new signing-message version, and every
+log written here would have stopped verifying under an older reader. So logs
+written by 1.4.0 verify under 1.3.x, and logs written before 1.4.0 carry no kid
+and are checked against each supplied key in turn. Passing a single key keeps
+working exactly as before.
+
+As a selector rather than a claim, a tampered `kid` makes verification pick the
+wrong key and fail. It cannot make a forged record verify, because that still
+needs a key the verifier was given.
+
+**Still not solved: validity.** No validity window, no revocation. `kids` says
+which keys signed, not that they were trusted when they did.
+
+**ASSESSMENT.md.** Where this package's boundary falls, what cryptographic
+agility it has beyond what the primitives provide, and what constrains its
+lifecycle. It references the `kxco-post-quantum` evidence rather than restating
+it, because a second copy of a conformance claim invites the reader to count it
+twice.
+
+**An evidence bundle.** `npm run evidence` records identity, this package's own
+tests, its SBOM, registry signature verification, and the `kxco-post-quantum`
+version actually installed rather than the range declared.
+
 ## 1.3.1
 
 Documentation and a dependency refresh. No source change.

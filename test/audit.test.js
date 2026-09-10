@@ -49,7 +49,9 @@ describe('AuditLog (memory)', () => {
     const other = mlDsa.ml_dsa65.keygen()
     const result = await log.verify(other.publicKey)
     assert.equal(result.valid, false)
-    assert.match(result.error, /signature invalid/)
+    // Named rather than generic: the entry records which key signed it, so the
+    // refusal can point at the key that is missing.
+    assert.match(result.error, /entry 0: signed by kid [0-9a-f]{16}, which was not among/)
   })
 
   test('export returns entries in insertion order', async () => {
@@ -167,7 +169,10 @@ describe('AuditLog (sealed)', () => {
     const other = mlDsa.ml_dsa65.keygen()
     const result = await log.verify(other.publicKey)
     assert.equal(result.valid, false)
-    assert.match(result.error, /seal 0: signature invalid/)
+    // The seal names the key that signed it, so the refusal can say the key was
+    // never supplied rather than only that a signature did not check out. Both
+    // are refusals; this one tells you which key to go and find.
+    assert.match(result.error, /seal 0: signed by kid [0-9a-f]{16}, which was not among/)
   })
 
   test('seal() on a classic log throws rather than signing nothing', async () => {
@@ -331,5 +336,110 @@ describe('FileAuditLog', () => {
       assert.equal(result.valid, false)
       assert.match(result.error, /prevHash mismatch/)
     } finally { try { unlinkSync(p) } catch { /* ok */ } }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Key rotation
+//
+// The gap this closes: verify() used to take one public key and apply it to
+// every record, so a log that outlived a rotation could not be verified as a
+// single artefact. There was no way to say "these entries were signed by the
+// old key and those by the new one".
+// ---------------------------------------------------------------------------
+
+describe('key rotation', () => {
+  const rotPath = join(tmpdir(), `kxco-audit-rotate-${process.pid}.ndjson`)
+  const oldKey = mlDsa.ml_dsa65.keygen()
+  const newKey = mlDsa.ml_dsa65.keygen()
+
+  after(() => { try { unlinkSync(rotPath) } catch {} })
+
+  async function writeRotatedLog() {
+    try { unlinkSync(rotPath) } catch {}
+    const before = new FileAuditLog({ keypair: oldKey, path: rotPath })
+    await before.append('issued', { step: 1 })
+    await before.append('issued', { step: 2 })
+    await before.close()
+
+    // The rotation: same file, new signing key.
+    const after_ = new FileAuditLog({ keypair: newKey, path: rotPath })
+    await after_.append('issued', { step: 3 })
+    await after_.close()
+  }
+
+  test('a log spanning a rotation verifies when both keys are supplied', async () => {
+    await writeRotatedLog()
+    const reader = new FileAuditLog({ keypair: newKey, path: rotPath })
+    const result = await reader.verify([oldKey.publicKey, newKey.publicKey])
+    await reader.close()
+
+    assert.equal(result.valid, true)
+    assert.equal(result.count, 3)
+    // Both keys actually signed, and the result says so rather than leaving the
+    // caller to assume one of them was redundant.
+    assert.equal(result.kids.length, 2)
+  })
+
+  test('the same log fails under either key alone, naming the missing one', async () => {
+    await writeRotatedLog()
+    const reader = new FileAuditLog({ keypair: newKey, path: rotPath })
+
+    const withNewOnly = await reader.verify(newKey.publicKey)
+    assert.equal(withNewOnly.valid, false)
+    assert.match(withNewOnly.error, /entry 0: signed by kid [0-9a-f]{16}, which was not among/)
+
+    const withOldOnly = await reader.verify(oldKey.publicKey)
+    assert.equal(withOldOnly.valid, false)
+    assert.match(withOldOnly.error, /entry 2: signed by kid [0-9a-f]{16}, which was not among/)
+    await reader.close()
+  })
+
+  test('order of the supplied keys does not matter', async () => {
+    await writeRotatedLog()
+    const reader = new FileAuditLog({ keypair: newKey, path: rotPath })
+    const a = await reader.verify([oldKey.publicKey, newKey.publicKey])
+    const b = await reader.verify([newKey.publicKey, oldKey.publicKey])
+    await reader.close()
+    assert.equal(a.valid, true)
+    assert.equal(b.valid, true)
+  })
+
+  test('signingKid matches the kid written onto entries', async () => {
+    const log = new AuditLog({ keypair: oldKey })
+    const entry = await log.append('op', {})
+    assert.equal(entry.kid, log.signingKid)
+    assert.match(entry.kid, /^[0-9a-f]{16}$/)
+  })
+
+  test('an entry with no kid still verifies, so logs written before this version do', async () => {
+    // Simulates a log written by 1.3.x: same signed bytes, no kid selector.
+    const log = new AuditLog({ keypair: oldKey })
+    await log.append('op', {})
+    const entries = await log.export()
+    for (const e of entries) delete e.kid
+    log._iterate = async function* () { for (const e of entries) yield e }
+
+    const result = await log.verify(oldKey.publicKey)
+    assert.equal(result.valid, true)
+    assert.equal(result.count, 1)
+  })
+
+  test('a kid-less entry is still refused under the wrong key', async () => {
+    const log = new AuditLog({ keypair: oldKey })
+    await log.append('op', {})
+    const entries = await log.export()
+    for (const e of entries) delete e.kid
+    log._iterate = async function* () { for (const e of entries) yield e }
+
+    const result = await log.verify(newKey.publicKey)
+    assert.equal(result.valid, false)
+    assert.match(result.error, /entry 0: signature invalid/)
+  })
+
+  test('verify with no keys at all is an error, not a pass', async () => {
+    const log = new AuditLog({ keypair: oldKey })
+    await log.append('op', {})
+    await assert.rejects(() => log.verify([]), /at least one public key/)
   })
 })

@@ -134,9 +134,30 @@ Replays the entire log from entry 0. For each entry, checks:
 1. `prevHash` matches the SHA-256 of the previous entry (including its signature)
 2. The ML-DSA-65 signature is valid over the canonical signing bytes
 
-Returns `{ valid: true, count }` or `{ valid: false, error }` describing the first failure. On a sealed log it checks the chain and every seal instead, and adds `sealedThrough` and `unsealed`.
+Returns `{ valid: true, count, kids }` or `{ valid: false, error }` describing the first failure. On a sealed log it checks the chain and every seal instead, and adds `sealedThrough` and `unsealed`.
 
 It streams, so memory is bounded by one entry rather than by the log: 50,000 entries verify in 729 ms without holding them.
+
+#### Logs that outlive a key rotation
+
+A long-lived log will outlast the key it started with. Pass every key it was signed under and it verifies as one artefact:
+
+```js
+const result = await log.verify([oldKey.publicKey, newKey.publicKey])
+// { valid: true, count: 3, kids: ['a1b2…', 'c3d4…'] }
+```
+
+Each entry records the `kid` of the key that signed it, so verification selects the right key rather than trying to force one across the whole file. `kids` reports which keys actually signed, in the order first seen — more than one means the log spans a rotation.
+
+Supply too few keys and the failure names what is missing, rather than reporting a generic bad signature:
+
+```
+entry 0: signed by kid a1b2c3d4e5f60718, which was not among the 1 key(s) supplied
+```
+
+Order does not matter. Entries written before 1.4.0 carry no `kid` and are checked against each supplied key in turn, so **older logs verify unchanged** — and because `kid` is not part of the signed bytes, logs written by 1.4.0 still verify under 1.3.x.
+
+What this does not do is tell you a key was *trusted* at the time it signed. There is no validity window and no revocation here; `kids` tells you which keys were used, and deciding whether they should have been is outside this package.
 
 ### `log.seal()`
 

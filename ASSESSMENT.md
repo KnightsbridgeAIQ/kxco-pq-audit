@@ -62,17 +62,38 @@ What this package's releases do carry is not nothing:
 - An **evidence bundle** from `npm run evidence`, recording identity, the test
   run, the SBOM and the `kxco-post-quantum` version actually installed.
 
-**Retain history: the limitation that matters.** `verify(publicKey)` takes one
-public key and applies it to the whole log. A log whose signing key was rotated
-part-way through cannot be verified as a single artefact, because entries
-before the rotation were signed by a key `verify` is no longer being given.
+**Retain history: rotation is handled, validity is not.**
 
-There is no key identifier in the entry format and no validity window, so the
-package cannot select the right key per entry, and it cannot tell you a key was
-still trusted when a signature was made. Long-lived logs need either one key
-for the life of the log, or a segmentation strategy the caller imposes from
-outside. This is the open long-term-validation question for the KXCO stack and
-it is not solved here.
+Until 1.4.0 `verify(publicKey)` took one key and applied it to the whole log, so
+a log whose signing key rotated part-way through could not be verified as a
+single artefact. That is fixed. Entries and seals record the `kid` of the key
+that signed them, `verify` accepts an array, and each record is checked against
+the key its kid names:
+
+```js
+await log.verify([oldKey.publicKey, newKey.publicKey])
+// { valid: true, count: 3, kids: ['a1b2…', 'c3d4…'] }
+```
+
+Two properties worth an assessor's attention. The `kid` is **not** part of the
+signed bytes, deliberately: including it would have meant a new signing-message
+version and every log written here would have stopped verifying under an older
+reader. As a selector it cannot make a forged record verify, because that still
+needs a key the verifier was given, and tampering with it produces the same
+refusal tampering with anything else already produced. And a record naming a key
+that was not supplied fails with that fact rather than a generic bad signature,
+which is the difference between "go and find the old key" and "something is
+wrong".
+
+Records written before 1.4.0 carry no kid and are checked against each supplied
+key in turn, so older logs verify unchanged.
+
+**What is still not solved: validity.** There is no validity window and no
+revocation. `kids` tells you which keys signed; it does not tell you that a key
+was still trusted at the moment it signed, and a key compromised later verifies
+exactly as cleanly as one that was not. That remains the open long-term
+question for the KXCO stack, and the on-chain checkpoint is the only thing
+pinning a signature to a point in time.
 
 ## Agility
 

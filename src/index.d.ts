@@ -12,6 +12,16 @@ export interface AuditEntry {
    * fields. Absent on a sealed log, where the run is signed once by `seal()`.
    */
   signature?: string
+  /**
+   * 16 hex characters identifying the key that signed this entry, present from
+   * 1.4.0. Absent on entries written by earlier versions and on sealed logs,
+   * where the seal carries it instead.
+   *
+   * Not part of the signed bytes: it selects a key rather than asserting one.
+   * Tampering with it makes verification pick the wrong key and fail; it cannot
+   * make a forged entry verify.
+   */
+  kid?: string
 }
 
 /** One signed run of a sealed log. Seals chain to each other by `prevRoot`. */
@@ -27,6 +37,12 @@ export interface AuditSeal {
   /** base64url ML-DSA-65 signature over the seal's canonical form. */
   signature:  string
   institutionKid: string | null
+  /**
+   * 16 hex characters identifying the key that signed this seal, present from
+   * 1.4.0. Distinct from `institutionKid`, which names the institution rather
+   * than the signing key.
+   */
+  kid?: string
 }
 
 export interface AuditVerifySuccess {
@@ -43,6 +59,11 @@ export interface AuditVerifySuccess {
    * either — seal() closes the window.
    */
   unsealed?: number
+  /**
+   * Every signing key that actually produced a signature in this log, in the
+   * order first seen. More than one means the log spans a key rotation.
+   */
+  kids: string[]
 }
 
 export interface AuditVerifyFailure {
@@ -107,7 +128,23 @@ export declare class AuditLog {
    * Verify the full hash chain, plus every entry's signature on a classic log
    * or every seal on a sealed one.
    */
-  verify(publicKey: Uint8Array | Buffer): Promise<AuditVerifyResult>
+  /**
+   * Replay the log and check every signature.
+   *
+   * Pass one key for a log signed by one key. Pass several for a log that
+   * outlived a key rotation: each record is checked against the key its `kid`
+   * names, and records written before 1.4.0 carry no kid and are checked
+   * against each key in turn.
+   *
+   * A record naming a key that was not supplied is a failure that says so,
+   * rather than a generic invalid signature.
+   */
+  verify(
+    publicKey: Uint8Array | Buffer | Array<Uint8Array | Buffer>,
+  ): Promise<AuditVerifyResult>
+
+  /** The kid of the key this log signs with. */
+  readonly signingKid: string
 
   /**
    * Sign everything appended since the last seal, as one run. Returns the seal,
