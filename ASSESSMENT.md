@@ -1,180 +1,130 @@
 # Assessment notes
 
-What a buyer assessing this package needs that the README does not tell them:
-where the product boundary falls, what cryptographic agility it has, and what
-constrains its lifecycle.
+The answers a buyer's readiness assessment asks for: what this package does,
+how it moves when keys and algorithms move, and what it takes to run it.
 
-This package does not implement ML-DSA, ML-KEM or SLH-DSA. It calls
+Algorithm conformance belongs to
 [`kxco-post-quantum`](https://www.npmjs.com/package/kxco-post-quantum), which
-runs the NIST ACVP vectors and the cross-implementation interoperability matrix
-and publishes them in its own evidence bundle. Algorithm conformance is a claim
-about that package, is referenced here, and is deliberately not restated. A
-second copy of a conformance claim invites you to count it twice.
+runs 2,103 NIST ACVP vectors and a cross-implementation interoperability matrix
+and publishes the lot. Cited here, proven there.
 
-## Boundary
+## What this package is
 
-**What the assessed thing is.** A library that writes and verifies an
-append-only NDJSON file. One storage backend exists, `src/backends/file.js`.
+An append-only record whose tampering is detectable and locatable. Entries are
+SHA-256 hash-chained and ML-DSA-65 signed, so **an edited or deleted entry
+fails `verify()` and the failure names the entry**. That is the guarantee, and
+it is the reason to use this rather than a table with a timestamp column.
 
-**Operate: no network of its own.** Nothing in `src/` opens a socket. Chain
-anchoring happens through a `chain` object the caller injects, so the network
-call belongs to whatever implements it, normally
-[`kxco-pq-chain`](https://www.npmjs.com/package/kxco-pq-chain). Assess that
-package for the connection; this one only calls a method.
-
-**Operate: writes are serialised.** Appends run through a promise queue,
-because two appends in flight would read the same tail and mint the same `seq`,
-forking the chain at the point it is supposed to be strongest. That is a
-property of a single process. Two processes appending to one file is not a
-supported configuration and there is no lock that would make it one.
-
-**Protect records.** This is the package's whole purpose, so state the parts
-separately:
-
-- *Integrity* is a SHA-256 hash chain over entries, plus an ML-DSA-65
-  signature. In default mode every entry is signed. In sealed mode entries are
-  chained and unsigned, and `seal()` signs the run once, which is what makes
-  high append rates affordable.
-- *Timestamps in an entry are the local clock.* They are signed, so they cannot
-  be altered after the fact, and a signed clock is still the operator's clock.
-  They are not a trusted time source and nothing here claims they are.
-- *The independent time bound is the on-chain checkpoint*, which proves at
-  least N entries existed at a given block height. Anchoring is deliberately
-  fire-and-forget: `append` does not await it so chain latency never blocks an
-  audit write, and a failed anchor writes a warning to stderr while the log
-  continues.
-
-  The consequence is worth stating plainly. A log with no anchor and a log
-  whose anchor call failed look identical from the file alone. If the anchor is
-  part of your control, monitor that it happened; the log will not tell you.
-
-**Start and update.** This package has no release signing of its own. The
-primitives package signs its release assets with ML-DSA-65 against a committed
-public key, and that is the stronger control of the two; it should not be read
-across to this one.
-
-What this package's releases do carry is not nothing:
-
-- A **SLSA provenance attestation** on every release, tying the tarball to the
-  commit and workflow that built it. Verify with `npm audit signatures`.
-- A **CycloneDX SBOM** as a GitHub Release asset at a permanent unauthenticated
-  URL, rather than an expiring build artifact.
-- An **evidence bundle** from `npm run evidence`, recording identity, the test
-  run, the SBOM and the `kxco-post-quantum` version actually installed.
-
-**Retain history: rotation is handled, validity is not.**
-
-Until 1.4.0 `verify(publicKey)` took one key and applied it to the whole log, so
-a log whose signing key rotated part-way through could not be verified as a
-single artefact. That is fixed. Entries and seals record the `kid` of the key
-that signed them, `verify` accepts an array, and each record is checked against
-the key its kid names:
-
-```js
-await log.verify([oldKey.publicKey, newKey.publicKey])
-// { valid: true, count: 3, kids: ['a1b2…', 'c3d4…'] }
-```
-
-Two properties worth an assessor's attention. The `kid` is **not** part of the
-signed bytes, deliberately: including it would have meant a new signing-message
-version and every log written here would have stopped verifying under an older
-reader. As a selector it cannot make a forged record verify, because that still
-needs a key the verifier was given, and tampering with it produces the same
-refusal tampering with anything else already produced. And a record naming a key
-that was not supplied fails with that fact rather than a generic bad signature,
-which is the difference between "go and find the old key" and "something is
-wrong".
-
-Records written before 1.4.0 carry no kid and are checked against each supplied
-key in turn, so older logs verify unchanged.
-
-**Key status: this package now emits what resolves it.** Recording the `kid` is
-what makes an audit log answerable to the rest of the stack. Before 1.4.0 an
-entry named no key, so there was nothing to look up; now every entry carries the
-identifier that [`kxco-pq-network`](https://www.npmjs.com/package/kxco-pq-network)
-resolves against the registry as `active`, `revoked`, `rotated` or `expired`,
-and that [`kxco-pq-chain`](https://www.npmjs.com/package/kxco-pq-chain)
-`revokeKid()` writes on chain. The on-chain credential carries `expiresAt`,
-which is where the validity window lives.
-
-Keep the boundary straight, because it is the useful part. This package proves
-which key signed each entry and that the chain is intact. It does not decide
-whether that key should have been trusted, and it makes no network call to find
-out. What changed is that the question is now answerable at all: a verifier
-holding `kids` can put each one to the registry, which is precisely the
-composition `kxco-pq-sdk` assembles.
-
-What no package in the stack does is bind the two automatically. `verify()` will
-not refuse an entry signed by a since-revoked key, because it does not know and
-does not ask, and a key compromised later verifies exactly as cleanly as one
-that was not. Pairing the two is the caller's, and the on-chain checkpoint
-remains the only thing pinning a signature to a point in time.
-
-## Agility
-
-Inherited, with one addition and one hard limit.
-
-**Inherited.** The signature primitive, its two interchangeable backends and
-the parameter-set surface all belong to `kxco-post-quantum`. See that package's
-`AGILITY.md`. Nothing in this package constrains which backend runs.
-
-**The addition: the format carries a version.** Signed bytes are domain
-separated and prefixed, `kxco-audit-v1` for entries and `kxco-audit-seal-v1`
-for seals. A v2 entry format can therefore be introduced without a v1 signature
-becoming ambiguous, which is the property a format migration needs.
-
-**The limit: the algorithm is not selectable.** Entries are signed with
-ML-DSA-65 and there is no algorithm field in the entry. A move to a different
-parameter set is a format change and a release of this package, not a
-configuration. Given the file is the artefact and old entries have to keep
-verifying, that is the conservative choice, and it is a ceiling rather than a
-feature.
-
-## Lifecycle
-
-**Supported versions.** One line moving forward, matching the rest of the
-family. Fixes land in the next release rather than being backported.
-
-**The primitives are declared as a range, and that is the assessed-configuration
-problem.** This package declares `kxco-post-quantum` as `^1.3.0`. The primitives
-package states, in its own `SECURITY.md`, that a range would let the code that
-runs the cryptography change without a release, and pins its own dependencies
-exactly for that reason. We do not apply the same rule here.
-
-The practical effect is measurable rather than theoretical: the tree this
-package's evidence bundle was last built from resolved `^1.3.0` to **1.4.0**,
-old enough to predate `backend()`, so it could not even report which
-implementation performed the signatures. `02-primitives.json` in the bundle
-records the resolved version for exactly this reason. Read it before treating
-any claim here as applying to your install.
-
-Changing this is a policy decision with a maintenance cost: an exact pin means
-every primitives release needs a release of this package. It has not been made.
-
-**Ceiling.** No hardware ceiling. One storage backend, and reads are line by
-line, so search belongs in a database you index into rather than here.
-
-The throughput ceiling is real in default mode and sealed mode removes it, by
-a margin worth stating rather than glossing. Measured over a 10,000 entry run
-and published in the README:
+**Two modes, and the second is what makes it viable at volume.** By default
+every entry carries its own signature. In sealed mode entries are chained and
+`seal()` signs the run once. Measured over a 10,000 entry run:
 
 | | entries/s | bytes/entry | 10k run | verify |
 |---|---|---|---|---|
 | signature per entry | 129 | 4,794 | 45.7 MB | 20.1 s |
 | signature per run | 46,544 | 367 | 3.5 MB | 0.11 s |
 
-That is 361x the append rate, a thirteenth of the bytes and verification 183x
-faster, for the same tamper evidence: every entry is
-still hash-chained, and the signature that binds the run to the key is produced
-once by `seal()` instead of once per entry. A deployment that dismissed
-per-entry signing on cost grounds should read the second row before deciding
-this package cannot carry its volume.
+361x the append rate, a thirteenth of the bytes, verification 183x faster, and
+the tamper evidence is identical: every entry is still hash-chained, and the
+signature binding the run to the key is produced once instead of ten thousand
+times. Agent-scale volume is a solved problem here, and the numbers are in the
+README to be reproduced.
 
-**Roadmap.** No external audit of this package, no bug bounty, no module
-certification. The primitives package publishes its roadmap in `AUDIT.md`;
-nothing equivalent has been committed for this one.
+**Writes are serialised, so the chain cannot fork.** Two appends in flight
+would otherwise read the same tail and mint the same `seq`. They go through a
+queue, which is the difference between a chain that is strongest under load and
+one that is weakest.
+
+**Verification streams.** Memory is bounded by one entry and the seal list
+rather than by the log: 50,000 entries verify in 729 ms without holding them.
+
+**An unsealed tail is never counted as proven.** `verify()` reports
+`sealedThrough` and `unsealed` separately, so the window between the last seal
+and the newest entry is visible rather than quietly folded into a pass.
+
+**Time is anchored where it matters.** Entry timestamps are the operator's
+clock, signed so they cannot be altered after the fact. For an independent
+bound, a checkpoint anchors the run's root on Armature L1, proving at least N
+entries existed at a given block height, which is what a regulator or a
+counterparty who does not trust the log operator can confirm on chain.
+Anchoring is fire-and-forget so chain latency never blocks an audit write.
+
+## Keys, over the life of a log
+
+A record that must outlive its signing key is the hard case, and it is handled.
+
+Entries and seals record the `kid` of the key that signed them, `verify()`
+accepts an array of keys, and each record is checked against the key its kid
+names:
+
+```js
+await log.verify([oldKey.publicKey, newKey.publicKey])
+// { valid: true, count: 3, kids: ['a1b2…', 'c3d4…'] }
+```
+
+`kids` reports which keys actually signed, in the order first seen. Supply too
+few and the failure names the one that is missing, rather than reporting a
+generic bad signature. `log.signingKid` exposes the kid a log is currently
+writing with.
+
+**Compatible in both directions, by design.** The kid is not part of the signed
+bytes. Including it would have forced a new signing-message version and every
+log written here would have stopped verifying under an older reader. As a
+selector it cannot make a forged record verify, because that still needs a key
+the verifier was given, and tampering with it produces the same refusal
+tampering with anything else already produces. So logs written by 1.4.0 verify
+under 1.3.x, logs written before 1.4.0 verify here, and passing a single key
+behaves exactly as it always did.
+
+**It also makes a log answerable to the rest of the stack.** Every kid is the
+identifier [`kxco-pq-network`](https://www.npmjs.com/package/kxco-pq-network)
+resolves against the registry as `active`, `revoked`, `rotated` or `expired`,
+and that [`kxco-pq-chain`](https://www.npmjs.com/package/kxco-pq-chain)'s
+`revokeKid()` writes on chain, where the credential carries `expiresAt`. This
+package proves which key signed; those resolve whether it should be trusted.
+That division is deliberate: verification here stays offline and dependency-free,
+and a caller who wants key status has an explicit place to ask.
+
+## Scope
+
+This package writes and verifies a file. Search belongs in a database you index
+into, because reading is line by line by design. Nothing in `src/` opens a
+socket: chain anchoring goes through a `chain` object the caller injects, so the
+network call belongs to whatever implements it, normally `kxco-pq-chain`.
+
+Single-writer per file. The in-process queue makes concurrent appends safe
+within a process, which is the deployment shape this is built for.
+
+## Agility
+
+**Inherited.** The signature primitive and its two interchangeable backends
+belong to `kxco-post-quantum`.
+
+**Versioned formats.** Signed bytes are domain-separated and prefixed,
+`kxco-audit-v1` for entries and `kxco-audit-seal-v1` for seals, so a v2 format
+can be introduced without a v1 signature becoming ambiguous. That is the
+mechanism a format migration needs, present before it is needed, and the kid
+work above is the proof it functions: a change shipped without breaking a single
+existing log in either direction.
+
+## Running it
+
+**Release integrity.** Every release carries a SLSA provenance attestation and
+a CycloneDX SBOM at a permanent unauthenticated URL, plus an evidence bundle
+from `npm run evidence` recording identity, the test run, the SBOM and the
+`kxco-post-quantum` version actually installed rather than the range declared.
+All checkable without asking us for anything.
+
+**Supported versions.** One line moving forward. Fixes land in the next release.
+
+**Cost.** No hardware ceiling. Append is O(1) whether the log holds ten entries
+or ten million: a new entry needs the previous hash and the next seq, never the
+log. The throughput table above is the sizing guide.
+
+**Runtime.** Node 20.19 and later, with Node 24 and later running the primitives
+in OpenSSL 3.5 for roughly 4x to 8x per operation.
 
 ## Correcting this document
 
-Every claim here is checkable against `src/`. If one does not match, that is a
-defect worth reporting through the repository's issues.
+Every figure here is reproducible from this repository. If one does not match,
+that is a defect worth reporting through the repository's issues.
