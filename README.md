@@ -157,7 +157,9 @@ entry 0: signed by kid a1b2c3d4e5f60718, which was not among the 1 key(s) suppli
 
 Order does not matter. Entries written before 1.4.0 carry no `kid` and are checked against each supplied key in turn, so **older logs verify unchanged** — and because `kid` is not part of the signed bytes, logs written by 1.4.0 still verify under 1.3.x.
 
-What this does not do is tell you a key was *trusted* at the time it signed. There is no validity window and no revocation here; `kids` tells you which keys were used, and deciding whether they should have been is outside this package.
+Recording the kid is also what makes a log answerable to the rest of the stack. Before 1.4.0 an entry named no key, so there was nothing to look up. Every `kid` in `kids` is the identifier [`kxco-pq-network`](https://www.npmjs.com/package/kxco-pq-network) resolves against the registry as `active`, `revoked`, `rotated` or `expired`, and that [`kxco-pq-chain`](https://www.npmjs.com/package/kxco-pq-chain)'s `revokeKid()` writes on chain.
+
+This package does not make that call. `verify()` proves which key signed each entry and that the chain is intact; it will not refuse an entry signed by a since-revoked key, because it does not ask. Putting the two together is the caller's, and it is now possible.
 
 ### `log.seal()`
 

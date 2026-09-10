@@ -43,8 +43,16 @@ As a selector rather than a claim, a tampered `kid` makes verification pick the
 wrong key and fail. It cannot make a forged record verify, because that still
 needs a key the verifier was given.
 
-**Still not solved: validity.** No validity window, no revocation. `kids` says
-which keys signed, not that they were trusted when they did.
+**It also makes a log answerable to the rest of the stack.** Before this an
+entry named no key, so there was nothing to look up. Every kid is the identifier
+`kxco-pq-network` resolves against the registry as `active`, `revoked`,
+`rotated` or `expired`, and that `kxco-pq-chain`'s `revokeKid()` writes on
+chain; the on-chain credential carries `expiresAt`.
+
+This package still does not make that call. `verify()` proves which key signed
+each entry and that the chain is intact, and will not refuse an entry signed by
+a since-revoked key because it does not ask. Pairing the two is the caller's,
+and as of this release it is possible.
 
 **ASSESSMENT.md.** Where this package's boundary falls, what cryptographic
 agility it has beyond what the primitives provide, and what constrains its

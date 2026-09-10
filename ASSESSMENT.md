@@ -88,12 +88,27 @@ wrong".
 Records written before 1.4.0 carry no kid and are checked against each supplied
 key in turn, so older logs verify unchanged.
 
-**What is still not solved: validity.** There is no validity window and no
-revocation. `kids` tells you which keys signed; it does not tell you that a key
-was still trusted at the moment it signed, and a key compromised later verifies
-exactly as cleanly as one that was not. That remains the open long-term
-question for the KXCO stack, and the on-chain checkpoint is the only thing
-pinning a signature to a point in time.
+**Key status: this package now emits what resolves it.** Recording the `kid` is
+what makes an audit log answerable to the rest of the stack. Before 1.4.0 an
+entry named no key, so there was nothing to look up; now every entry carries the
+identifier that [`kxco-pq-network`](https://www.npmjs.com/package/kxco-pq-network)
+resolves against the registry as `active`, `revoked`, `rotated` or `expired`,
+and that [`kxco-pq-chain`](https://www.npmjs.com/package/kxco-pq-chain)
+`revokeKid()` writes on chain. The on-chain credential carries `expiresAt`,
+which is where the validity window lives.
+
+Keep the boundary straight, because it is the useful part. This package proves
+which key signed each entry and that the chain is intact. It does not decide
+whether that key should have been trusted, and it makes no network call to find
+out. What changed is that the question is now answerable at all: a verifier
+holding `kids` can put each one to the registry, which is precisely the
+composition `kxco-pq-sdk` assembles.
+
+What no package in the stack does is bind the two automatically. `verify()` will
+not refuse an entry signed by a since-revoked key, because it does not know and
+does not ask, and a key compromised later verifies exactly as cleanly as one
+that was not. Pairing the two is the caller's, and the on-chain checkpoint
+remains the only thing pinning a signature to a point in time.
 
 ## Agility
 
