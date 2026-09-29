@@ -288,7 +288,7 @@ The checkpoint provides an on-chain timestamp proving that at least N entries ex
 | Find quantum-vulnerable cryptography in a dependency tree | [`kxco-pq-scan`](https://www.npmjs.com/package/kxco-pq-scan) |
 | Fail the build when code reaches past the wrapper | [`eslint-plugin-kxco-pq`](https://www.npmjs.com/package/eslint-plugin-kxco-pq) |
 
-[kxco.ai](https://kxco.ai) · [Knightsbridge Law](https://knightsbridge.law) · [target150.com](https://target150.com)
+[kxco.ai](https://kxco.ai) · [Knightsbridge Law](https://knightsbridgelaw.com) · [target150.com](https://target150.com)
 
 ## Release integrity
 

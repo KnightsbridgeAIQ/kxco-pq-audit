@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.2
+
+Documentation. No source change.
+
+The Knightsbridge Law link now points at knightsbridgelaw.com.
+
 ## 1.4.1
 
 Documentation. No source change.
