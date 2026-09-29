@@ -1,7 +1,7 @@
 {
   "name": "kxco-pq-audit",
-  "version": "1.4.0",
-  "description": "Tamper-evident post-quantum audit log for regulated institutions. ML-DSA-65-signed, SHA-256 hash-chained entries, so any tampering breaks the chain and shows exactly where. Checkpoint to Armature L1 for an anchor a regulator can confirm on-chain.",
+  "version": "1.4.1",
+  "description": "Tamper-evident post-quantum audit trail for regulated institutions. ML-DSA-65 signed, SHA-256 hash-chained entries: any edit, gap or reorder fails verification and names the entry. 46,544 entries a second sealed, with checkpoints anchored on Armature L1.",
   "keywords": [
     "post-quantum",
     "pqc",
@@ -19,7 +19,17 @@
     "integrity",
     "immutable-log",
     "signed-log",
-    "sequence"
+    "sequence",
+    "quantum-safe",
+    "pqc-migration",
+    "digital-signature",
+    "soc2",
+    "iso27001",
+    "append-only",
+    "event-log",
+    "non-repudiation",
+    "ai-agent",
+    "crypto-agility"
   ],
   "license": "Apache-2.0",
   "author": "Shayne Heffernan and John Heffernan",
