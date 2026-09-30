@@ -62,6 +62,33 @@ function candidatesFrom(publicKey) {
   })
 }
 
+/**
+ * Normalise a checkpoint: what a verifier kept from an earlier look at the log.
+ *
+ * `count` is how many entries the log held and `tip` the hash of the last of
+ * them, so any earlier verify() result is a checkpoint as it stands. Either may
+ * be given alone. Checked strictly, because a checkpoint that names nothing
+ * would check nothing and read as a pass.
+ */
+function checkpointFrom(checkpoint) {
+  if (checkpoint === undefined) return null
+  const count = checkpoint?.count
+  const tip   = checkpoint?.tip ?? undefined
+  if (count !== undefined && !(Number.isSafeInteger(count) && count >= 0)) {
+    throw new KxcoPqAuditError('verify: checkpoint.count must be a whole number of entries')
+  }
+  if (tip !== undefined && typeof tip !== 'string') {
+    throw new KxcoPqAuditError('verify: checkpoint.tip must be the hash string an earlier verify() returned')
+  }
+  if (count === undefined && tip === undefined) {
+    throw new KxcoPqAuditError('verify: a checkpoint needs a count, a tip or both')
+  }
+  if (count === 0 && tip !== undefined) {
+    throw new KxcoPqAuditError('verify: a checkpoint with a tip covers at least one entry')
+  }
+  return { count, tip }
+}
+
 function verifySignature(candidates, recordKid, msg, signatureB64, label) {
   const sigHex = () => Buffer.from(fromB64url(signatureB64)).toString('hex')
 
@@ -298,10 +325,18 @@ export class AuditLog {
   /**
    * Replay the log from entry 0. Streams, so memory is bounded by one entry and
    * the seal list rather than by the log.
+   *
+   * The chain catches an entry removed from before the last, because the entry
+   * after it stops linking. Nothing follows the last entry, so its removal is
+   * caught against a checkpoint: the `{ count, tip }` an earlier verify()
+   * returned. The log may have grown since, but the entry the checkpoint was
+   * taken at must still be there, unchanged.
    */
-  async verify(publicKey) {
+  async verify(publicKey, { checkpoint } = {}) {
     const candidates = candidatesFrom(publicKey)
+    const pin        = checkpointFrom(checkpoint)
     const usedKids   = new Set()
+    let tipSeen      = false
 
     const seals = this.#sealed ? await this._seals() : []
     let sealIndex    = 0
@@ -348,11 +383,32 @@ export class AuditLog {
       }
 
       prevHash = hashEntry(entry)
+      if (pin?.tip !== undefined) {
+        if (pin.count === undefined) {
+          tipSeen ||= prevHash === pin.tip
+        } else if (count === pin.count - 1) {
+          if (prevHash !== pin.tip) {
+            return { valid: false, error: `checkpoint: entry ${count} does not match the checkpoint tip` }
+          }
+          tipSeen = true
+        }
+      }
       expectedSeq = entry.seq + 1
       count++
     }
 
-    if (!this.#sealed) return { valid: true, count, kids: [...usedKids] }
+    if (pin?.count !== undefined && count < pin.count) {
+      return { valid: false, error: `checkpoint: covers seq ${pin.count - 1}, log ends at ${count - 1}` }
+    }
+    if (pin?.tip !== undefined && !tipSeen) {
+      return { valid: false, error: 'checkpoint: no entry matches the checkpoint tip' }
+    }
+
+    // The hash of the last entry, which the next one will chain to. With
+    // `count`, it is the checkpoint a later verify() can be held to.
+    const tip = prevHash
+
+    if (!this.#sealed) return { valid: true, count, kids: [...usedKids], tip }
 
     if (sealIndex < seals.length) {
       const s = seals[sealIndex]
@@ -367,6 +423,7 @@ export class AuditLog {
       sealedThrough: expectedFrom - 1,
       unsealed: count - expectedFrom,
       kids: [...usedKids],
+      tip,
     }
   }
 

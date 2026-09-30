@@ -64,6 +64,32 @@ export interface AuditVerifySuccess {
    * order first seen. More than one means the log spans a key rotation.
    */
   kids: string[]
+  /**
+   * base64url SHA-256 of the last entry, the hash the next entry will chain
+   * to, or null for an empty log. With `count`, it is a checkpoint: keep this
+   * result and pass it to a later `verify()` as `{ checkpoint }`.
+   */
+  tip: string | null
+}
+
+/**
+ * What a verifier kept from an earlier look at the log. Any earlier
+ * `AuditVerifySuccess` is one. Either field may be given alone.
+ */
+export interface AuditCheckpoint {
+  /** The log must still hold at least this many entries. */
+  count?: number
+  /** The entry at `count - 1`, or with no count some entry, must hash to this. */
+  tip?: string | null
+}
+
+export interface AuditVerifyOptions {
+  /**
+   * Fail unless the log still holds, unchanged, the entry this checkpoint was
+   * taken at. The log may have grown since. This is what catches the last
+   * entry being removed or replaced, which leaves no later entry to break.
+   */
+  checkpoint?: AuditCheckpoint
 }
 
 export interface AuditVerifyFailure {
@@ -138,9 +164,13 @@ export declare class AuditLog {
    *
    * A record naming a key that was not supplied is a failure that says so,
    * rather than a generic invalid signature.
+   *
+   * Pass `{ checkpoint }`, the `{ count, tip }` of an earlier result, to also
+   * catch the last entry being removed or replaced since then.
    */
   verify(
     publicKey: Uint8Array | Buffer | Array<Uint8Array | Buffer>,
+    options?: AuditVerifyOptions,
   ): Promise<AuditVerifyResult>
 
   /** The kid of the key this log signs with. */

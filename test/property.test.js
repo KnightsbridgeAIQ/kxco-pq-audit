@@ -71,6 +71,17 @@ const fieldEdit = fc.oneof(
   fc.stringMatching(/^[0-9a-f]{16}$/).map((k) => ['kid', () => k]),
 )
 
+// What an edited file line can hold instead of a record: text that is not
+// JSON, or JSON that is not an object (null, a number, a string, a boolean or
+// an array). Single lines, since the files are one record per line.
+const notJson = fc.string({ unit: 'binary', minLength: 1, maxLength: 80 }).filter((s) => {
+  if (/[\r\n]/.test(s)) return false
+  try { JSON.parse(s); return false } catch { return true }
+})
+const notObject = fc.jsonValue({ maxDepth: 2 })
+  .filter((v) => v === null || typeof v !== 'object' || Array.isArray(v))
+  .map((v) => JSON.stringify(v))
+
 test('the harness fails a property that is false', () => {
   assert.throws(() => fc.assert(fc.property(fc.integer(), (n) => n + 1 === n), { numRuns: 10 }))
 })
@@ -96,8 +107,10 @@ test('any sequence of appends verifies, chained in order, and only under the key
   }), { numRuns: 20 })
 })
 
-// A gap is an entry missing from before the last one.
-test('any edit, gap or reorder in a signed log fails verification and names the entry', async () => {
+// Verified against the checkpoint an earlier verify() returned, so a gap can be
+// anywhere, the last entry included: nothing follows the last entry to break
+// its chain, and the checkpoint is what records that it was there.
+test('any edit, gap or reorder in a signed log fails verification against a checkpoint and names the entry', async () => {
   const mutation = fc.oneof(
     fc.tuple(fc.constant('edit'), fc.nat(), fieldEdit),
     fc.tuple(fc.constant('gap'), fc.nat()),
@@ -105,6 +118,7 @@ test('any edit, gap or reorder in a signed log fails verification and names the 
   )
   await fc.assert(fc.asyncProperty(records(2, 5), mutation, async (recs, m) => {
     const { log } = await build(recs)
+    const checkpoint = await log.verify(key.publicKey)
     const entries = copy(await log.export())
     const n = entries.length
     let expected
@@ -114,9 +128,11 @@ test('any edit, gap or reorder in a signed log fails verification and names the 
       entries[i] = { ...entries[i], [field]: change(entries[i]) }
       expected = new RegExp(`^entry ${i}: `)
     } else if (m[0] === 'gap') {
-      const i = m[1] % (n - 1)
+      const i = m[1] % n
       entries.splice(i, 1)
-      expected = new RegExp(`^entry ${i}: expected seq ${i}, got ${i + 1}$`)
+      expected = i === n - 1
+        ? new RegExp(`^checkpoint: covers seq ${i}, log ends at ${i - 1}$`)
+        : new RegExp(`^entry ${i}: expected seq ${i}, got ${i + 1}$`)
     } else {
       const i = m[1] % n
       const j = m[2] % n
@@ -125,8 +141,8 @@ test('any edit, gap or reorder in a signed log fails verification and names the 
       [entries[lo], entries[hi]] = [entries[hi], entries[lo]]
       expected = new RegExp(`^entry ${lo}: expected seq ${lo}, got ${hi}$`)
     }
-    const r = await replay(log, entries).verify(key.publicKey)
-    return r.valid === false && expected.test(r.error)
+    const r = await replay(log, entries).verify(key.publicKey, { checkpoint })
+    return checkpoint.valid === true && r.valid === false && expected.test(r.error)
   }), { numRuns: 25 })
 })
 
@@ -235,7 +251,7 @@ test('rotation: a file written under several keys in turn verifies with all of t
   }), { numRuns: 20 })
 })
 
-test('FileAuditLog: a line that is not JSON, anywhere in the file, is refused with the package error naming that line', async () => {
+test('FileAuditLog: a line that is not a JSON object, anywhere in the file, is refused with the package error naming that line', async () => {
   const path = freshPath()
   const writer = new FileAuditLog({ keypair: key, path, sealed: true })
   for (let i = 0; i < 5; i++) await writer.append('op', { i })
@@ -244,11 +260,11 @@ test('FileAuditLog: a line that is not JSON, anywhere in the file, is refused wi
   const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean)
   const seals = readFileSync(path + '.seals', 'utf8')
 
-  const junk = fc.string({ unit: 'binary', minLength: 1, maxLength: 80 }).filter((s) => {
-    if (/[\r\n]/.test(s)) return false
-    try { JSON.parse(s); return false } catch { return true }
-  })
-  await fc.assert(fc.asyncProperty(fc.nat({ max: lines.length - 1 }), junk, async (at, text) => {
+  const junk = fc.oneof(
+    notJson.map((text) => [text, 'is not valid JSON']),
+    notObject.map((text) => [text, 'is JSON but not an audit entry']),
+  )
+  await fc.assert(fc.asyncProperty(fc.nat({ max: lines.length - 1 }), junk, async (at, [text, says]) => {
     const edited = freshPath()
     writeFileSync(edited, lines.map((l, i) => (i === at ? text : l)).join('\n') + '\n')
     writeFileSync(edited + '.seals', seals)
@@ -257,7 +273,39 @@ test('FileAuditLog: a line that is not JSON, anywhere in the file, is refused wi
       await reader.verify(key.publicKey)
       return false
     } catch (err) {
-      return err instanceof KxcoPqAuditError && err.message.includes(`line ${at + 1} is not valid JSON`)
+      return err instanceof KxcoPqAuditError && err.message.includes(`line ${at + 1} ${says}`)
+    }
+  }), { numRuns: 50 })
+})
+
+test('FileAuditLog: a seals line that is not a JSON object, anywhere in the seals file, is refused with the package error naming that line', async () => {
+  const path = freshPath()
+  const writer = new FileAuditLog({ keypair: key, path, sealed: true })
+  for (let i = 0; i < 4; i++) {
+    await writer.append('op', { i })
+    await writer.seal()
+  }
+  await writer.close()
+  const entries = readFileSync(path, 'utf8')
+  const seals = readFileSync(path + '.seals', 'utf8').split('\n').filter(Boolean)
+
+  // A seal cut short, as an interrupted write leaves one.
+  const torn = fc.tuple(fc.nat({ max: seals.length - 1 }), fc.nat())
+    .map(([k, cut]) => seals[k].slice(0, 1 + (cut % (seals[k].length - 1))))
+  const junk = fc.oneof(
+    fc.oneof(notJson, torn).map((text) => [text, 'is not valid JSON']),
+    notObject.map((text) => [text, 'is JSON but not a seal']),
+  )
+  await fc.assert(fc.asyncProperty(fc.nat({ max: seals.length - 1 }), junk, async (at, [text, says]) => {
+    const edited = freshPath()
+    writeFileSync(edited, entries)
+    writeFileSync(edited + '.seals', seals.map((l, i) => (i === at ? text : l)).join('\n') + '\n')
+    const reader = new FileAuditLog({ keypair: key, path: edited, sealed: true })
+    try {
+      await reader.verify(key.publicKey)
+      return false
+    } catch (err) {
+      return err instanceof KxcoPqAuditError && err.message.includes(`.seals: line ${at + 1} ${says}`)
     }
   }), { numRuns: 50 })
 })
