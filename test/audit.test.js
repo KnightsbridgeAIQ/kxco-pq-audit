@@ -4,7 +4,7 @@ import { unlinkSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mlDsa } from 'kxco-post-quantum'
-import { AuditLog, FileAuditLog } from '../src/index.js'
+import { AuditLog, FileAuditLog, KxcoPqAuditError } from '../src/index.js'
 
 const keypair = mlDsa.ml_dsa65.keygen()
 
@@ -299,6 +299,64 @@ describe('FileAuditLog', () => {
     } finally { try { unlinkSync(p) } catch { /* ok */ } }
   })
 
+  test('a line that is JSON but not an entry is named, not read as one', async () => {
+    const p = join(tmpdir(), `kxco-audit-notentry-${process.pid}.ndjson`)
+    try {
+      const log = new FileAuditLog({ keypair, path: p })
+      await log.append('op1', {})
+      await log.append('op2', {})
+      await log.close()
+      const lines = readFileSync(p, 'utf8').trim().split('\n')
+      for (const junk of ['null', '42', '"text"', 'true', '[]']) {
+        // First, between entries, and after them.
+        for (const [at, body] of [[1, [junk, ...lines]], [2, [lines[0], junk, lines[1]]], [3, [...lines, junk]]]) {
+          writeFileSync(p, body.join('\n') + '\n')
+          await assert.rejects(
+            () => new FileAuditLog({ keypair, path: p }).verify(keypair.publicKey),
+            (err) => err instanceof KxcoPqAuditError && err.message.includes(`line ${at} is JSON but not an audit entry`),
+            `${junk} at line ${at}`,
+          )
+        }
+      }
+    } finally { try { unlinkSync(p) } catch { /* ok */ } }
+  })
+
+  test('a torn or edited seals line is named with the package error', async () => {
+    const p = join(tmpdir(), `kxco-audit-badseal-${process.pid}.ndjson`)
+    try {
+      const log = new FileAuditLog({ keypair, path: p, sealed: true })
+      await log.append('op1', {})
+      await log.seal()
+      await log.append('op2', {})
+      await log.seal()
+      await log.close()
+      const seals = readFileSync(p + '.seals', 'utf8').trim().split('\n')
+      const cases = [
+        [seals[0] + '\n' + seals[1].slice(0, 30), 2, 'is not valid JSON'],
+        [seals[0].slice(0, 30) + '\n' + seals[1] + '\n', 1, 'is not valid JSON'],
+        [seals[0] + '\nnull\n', 2, 'is JSON but not a seal'],
+        ['[]\n' + seals[1] + '\n', 1, 'is JSON but not a seal'],
+      ]
+      for (const [text, line, says] of cases) {
+        writeFileSync(p + '.seals', text)
+        for (const act of [
+          (l) => l.verify(keypair.publicKey),
+          (l) => l.seals(),
+          (l) => l.append('op3', {}),
+        ]) {
+          await assert.rejects(
+            () => act(new FileAuditLog({ keypair, path: p, sealed: true })),
+            (err) => err instanceof KxcoPqAuditError && err.message.includes(`.seals: line ${line} ${says}`),
+            `line ${line} ${says}`,
+          )
+        }
+      }
+    } finally {
+      try { unlinkSync(p) } catch { /* ok */ }
+      try { unlinkSync(p + '.seals') } catch { /* ok */ }
+    }
+  })
+
   test('stream() yields entries without loading the log', async () => {
     const p = join(tmpdir(), `kxco-audit-stream-${process.pid}.ndjson`)
     try {
@@ -441,5 +499,119 @@ describe('key rotation', () => {
     const log = new AuditLog({ keypair: oldKey })
     await log.append('op', {})
     await assert.rejects(() => log.verify([]), /at least one public key/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Checkpoints
+//
+// The chain catches an entry removed from before the last, because the entry
+// after it no longer links. The last entry has nothing after it, so a verifier
+// keeps a checkpoint: the count and tip an earlier verify() returned. Checked
+// against one, a log that has since lost or replaced its last entry fails.
+// ---------------------------------------------------------------------------
+
+describe('checkpoints', () => {
+  const build = async (n, opts = {}) => {
+    const log = new AuditLog({ keypair, ...opts })
+    for (let i = 0; i < n; i++) await log.append('op', { i })
+    return log
+  }
+  const withEntries = (log, entries) => { log._entries = async () => entries; return log }
+
+  test('verify reports the tip, the hash the next entry will chain to', async () => {
+    const log = await build(3)
+    const r = await log.verify(keypair.publicKey)
+    assert.match(r.tip, /^[A-Za-z0-9_-]{43}$/)
+    const next = await log.append('op', { i: 3 })
+    assert.equal(next.prevHash, r.tip)
+    assert.equal((await new AuditLog({ keypair }).verify(keypair.publicKey)).tip, null)
+  })
+
+  test('a log may grow past a checkpoint, but fails against it once it has lost its last entry', async () => {
+    const log = await build(3)
+    const checkpoint = await log.verify(keypair.publicKey)
+    const entries = await log.export()
+
+    const shorter = await withEntries(log, entries.slice(0, 2)).verify(keypair.publicKey, { checkpoint })
+    assert.equal(shorter.valid, false)
+    assert.equal(shorter.error, 'checkpoint: covers seq 2, log ends at 1')
+
+    delete log._entries
+    await log.append('op', { i: 3 })
+    const longer = await log.verify(keypair.publicKey, { checkpoint })
+    assert.equal(longer.valid, true)
+    assert.equal(longer.count, 4)
+  })
+
+  test('a last entry replaced by another, signed by the same key, fails against the checkpoint tip', async () => {
+    const p = join(tmpdir(), `kxco-audit-checkpoint-${process.pid}.ndjson`)
+    try {
+      const log = new FileAuditLog({ keypair, path: p })
+      for (let i = 0; i < 3; i++) await log.append('op', { i })
+      await log.close()
+      const checkpoint = await new FileAuditLog({ keypair, path: p }).verify(keypair.publicKey)
+
+      const lines = readFileSync(p, 'utf8').trim().split('\n')
+      writeFileSync(p, lines.slice(0, 2).join('\n') + '\n')
+      const writer = new FileAuditLog({ keypair, path: p })
+      await writer.append('op', { i: 'replaced' })
+      await writer.close()
+
+      const reader = new FileAuditLog({ keypair, path: p })
+      assert.equal((await reader.verify(keypair.publicKey)).valid, true, 'the chain alone cannot tell')
+      const r = await reader.verify(keypair.publicKey, { checkpoint })
+      assert.equal(r.valid, false)
+      assert.equal(r.error, 'checkpoint: entry 2 does not match the checkpoint tip')
+    } finally { try { unlinkSync(p) } catch { /* ok */ } }
+  })
+
+  test('a count alone, or a tip alone, is a checkpoint too', async () => {
+    const log = await build(3)
+    const { count, tip } = await log.verify(keypair.publicKey)
+    const all = await log.export()
+
+    assert.equal((await log.verify(keypair.publicKey, { checkpoint: { count } })).valid, true)
+    assert.equal((await log.verify(keypair.publicKey, { checkpoint: { tip } })).valid, true)
+
+    withEntries(log, all.slice(0, 2))
+    assert.equal((await log.verify(keypair.publicKey, { checkpoint: { count } })).error,
+      'checkpoint: covers seq 2, log ends at 1')
+    assert.equal((await log.verify(keypair.publicKey, { checkpoint: { tip } })).error,
+      'checkpoint: no entry matches the checkpoint tip')
+  })
+
+  test('sealed: an unsealed last entry removed or edited fails against a checkpoint', async () => {
+    const log = await build(3, { sealed: true })
+    await log.seal()
+    await log.append('op', { i: 3 })
+    const checkpoint = await log.verify(keypair.publicKey)
+    assert.equal(checkpoint.unsealed, 1)
+    const all = await log.export()
+
+    const removed = await withEntries(log, all.slice(0, 3)).verify(keypair.publicKey, { checkpoint })
+    assert.equal(removed.error, 'checkpoint: covers seq 3, log ends at 2')
+
+    const edited = [...all.slice(0, 3), { ...all[3], operation: 'other' }]
+    const changed = await withEntries(log, edited).verify(keypair.publicKey, { checkpoint })
+    assert.equal(changed.error, 'checkpoint: entry 3 does not match the checkpoint tip')
+  })
+
+  test('a checkpoint that names nothing, or names it wrongly, is an error rather than a pass', async () => {
+    const log = await build(1)
+    for (const checkpoint of [null, {}, { count: -1 }, { count: 1.5 }, { count: '1' }, { tip: 42 }, { count: 0, tip: 'x' }, { valid: false, error: 'e' }]) {
+      await assert.rejects(
+        () => log.verify(keypair.publicKey, { checkpoint }),
+        (err) => err instanceof KxcoPqAuditError && /checkpoint/.test(err.message),
+        JSON.stringify(checkpoint),
+      )
+    }
+  })
+
+  test('an empty log checkpoints as count 0, and any log verifies against that', async () => {
+    const empty = await new AuditLog({ keypair }).verify(keypair.publicKey)
+    assert.deepEqual([empty.count, empty.tip], [0, null])
+    const r = await (await build(2)).verify(keypair.publicKey, { checkpoint: empty })
+    assert.equal(r.valid, true)
   })
 })

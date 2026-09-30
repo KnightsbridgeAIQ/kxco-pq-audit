@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.5
+
+`verify(publicKey, { checkpoint })` takes the `{ count, tip }` an earlier verify
+returned, and fails a log that has since lost or replaced its last entry.
+Verify results carry `tip`.
+
+A file line that is JSON but not an entry, and a torn or edited `.seals` line,
+are refused with KxcoPqAuditError naming the line. The README Security section
+says when each kind of removal is caught.
+
 ## 1.4.4
 
 Documentation. No source change.

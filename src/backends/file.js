@@ -4,6 +4,9 @@ import { createInterface } from 'node:readline'
 import { AuditLog } from '../audit-log.js'
 import { KxcoPqAuditError } from '../errors.js'
 
+/** An entry or a seal is a JSON object: not null, not an array, not a scalar. */
+const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+
 /**
  * Append-only NDJSON backend.
  *
@@ -58,8 +61,9 @@ export class FileAuditLog extends AuditLog {
       for await (const line of lines) {
         lineNo++
         if (!line) continue
+        let entry
         try {
-          yield JSON.parse(line)
+          entry = JSON.parse(line)
         } catch {
           // A line that will not parse is either a torn write from a crash or
           // an edit. Either way it is not something to skip past in silence.
@@ -69,6 +73,14 @@ export class FileAuditLog extends AuditLog {
             'anywhere else means the file was edited.'
           )
         }
+        // JSON that is not an object cannot be an entry, and a torn write never
+        // produces one, since every entry line starts with `{`.
+        if (!isRecord(entry)) {
+          throw new KxcoPqAuditError(
+            `${this.#path}: line ${lineNo} is JSON but not an audit entry, which means the file was edited.`
+          )
+        }
+        yield entry
       }
     } finally {
       lines.close()
@@ -108,7 +120,31 @@ export class FileAuditLog extends AuditLog {
   async _seals() {
     let text
     try { text = await readFile(this.#sealPath, 'utf8') } catch { return [] }
-    return text.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+    // Read line by line, so a torn or edited seal is named the same way a bad
+    // entry line is. A line may end in \r if the file was edited with CRLF.
+    const seals = []
+    const lines = text.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].endsWith('\r') ? lines[i].slice(0, -1) : lines[i]
+      if (!line) continue
+      let seal
+      try {
+        seal = JSON.parse(line)
+      } catch {
+        throw new KxcoPqAuditError(
+          `${this.#sealPath}: line ${i + 1} is not valid JSON. ` +
+          'A partial last line is an interrupted seal and can be truncated; ' +
+          'anywhere else means the file was edited.'
+        )
+      }
+      if (!isRecord(seal)) {
+        throw new KxcoPqAuditError(
+          `${this.#sealPath}: line ${i + 1} is JSON but not a seal, which means the file was edited.`
+        )
+      }
+      seals.push(seal)
+    }
+    return seals
   }
 
   async _storeSeal(seal) {

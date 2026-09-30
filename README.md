@@ -315,7 +315,7 @@ Evidenced, and reproducible on your own machine:
 
 Dependency audit history is recorded in [AUDIT.md](https://github.com/KnightsbridgeAIQ/kxco-post-quantum/blob/main/AUDIT.md).
 
-The hash chain means a compromised or deleted entry cannot be hidden: any gap breaks verification of every subsequent entry.
+The hash chain means a compromised or deleted entry cannot be hidden. Removing any entry before the last breaks the chain at the entry after it, and `verify()` names that entry. Removing the last entry is caught by verifying against a checkpoint: pass the `{ count, tip }` an earlier `verify()` returned, as `log.verify(publicKey, { checkpoint })`, and a log that has since lost or replaced its last entry fails. On a sealed log, the seal that covers the last entry catches its removal as well.
 
 To report a vulnerability, open a [private security advisory](https://github.com/KnightsbridgeAIQ/kxco-pq-audit/security/advisories/new) or email **security@kxco.ai**.
 
