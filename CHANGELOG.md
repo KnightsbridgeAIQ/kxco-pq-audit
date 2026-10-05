@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+**ML-DSA-87 logs.** A log given an ML-DSA-87 keypair signs its entries, or its
+seals, with ML-DSA-87; `log.signingAlg` reports the set. Each such record
+carries `alg: 'ML-DSA-87'` and is signed over v1.1 bytes (`kxco-audit-v1.1`,
+`kxco-audit-seal-v1.1`) whose second line is the algorithm, so it is inside the
+signed bytes. An ML-DSA-65 log writes exactly the v1 records it always has, so
+logs from this version still verify under 1.4.x and earlier.
+
+**The verifier takes the algorithm from the key.** A record whose `alg` names
+the other set from the key its `kid` selects is refused and the error says so; a
+record with no `kid` is tried only against keys of the set it states. A record
+with no `alg` is read as ML-DSA-65, and a test verifies a classic and a sealed
+log written by 1.4.5. A log that rotated from ML-DSA-65 to ML-DSA-87 verifies
+with both keys.
+
+The `kxco-post-quantum` floor is now ^1.6.0.
+
 ## 1.4.5
 
 `verify(publicKey, { checkpoint })` takes the `{ count, tip }` an earlier verify

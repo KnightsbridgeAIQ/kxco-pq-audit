@@ -1,6 +1,35 @@
-import { mlDsa, fingerprint } from 'kxco-post-quantum'
+import { mlDsa, mlDsa87, fingerprint } from 'kxco-post-quantum'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { KxcoPqAuditError } from './errors.js'
+
+/**
+ * The ML-DSA parameter sets a log can be signed with. The KEY decides which:
+ * a key's length names its set, on the writing side and the verifying side.
+ *
+ * An ML-DSA-65 record is signed over the v1 bytes, exactly as before, and
+ * carries no `alg`, so a log written by this version still verifies under
+ * 1.4.x and earlier. An ML-DSA-87 record carries `alg: 'ML-DSA-87'` and is
+ * signed over v1.1 bytes, whose first line differs from v1 and whose second
+ * line is the algorithm, so the algorithm is inside the signed bytes. A record
+ * whose `alg` names neither set is read as v1, which means ML-DSA-65: that is
+ * how every record made before the field existed reads.
+ */
+const SETS = Object.freeze({
+  'ML-DSA-65': Object.freeze({ module: mlDsa,   publicKeyBytes: 1952, secretKeyBytes: 4032 }),
+  'ML-DSA-87': Object.freeze({ module: mlDsa87, publicKeyBytes: 2592, secretKeyBytes: 4896 }),
+})
+const DEFAULT_ALG = 'ML-DSA-65'
+
+function algForKey(key, field) {
+  for (const [name, set] of Object.entries(SETS)) if (key?.length === set[field]) return name
+  return null
+}
+
+const statedAlg = (value) => (Object.hasOwn(SETS, value) ? value : null)
+
+function versionLine(tag, alg) {
+  return alg === null ? `${tag}-v1` : `${tag}-v1.1\n${alg}`
+}
 
 const enc = new TextEncoder()
 
@@ -11,15 +40,15 @@ function hashEntry(entry) {
   return b64url(sha256(enc.encode(JSON.stringify(entry))))
 }
 
-function signingBytes(seq, timestamp, operation, metadata, prevHash) {
+function signingBytes(seq, timestamp, operation, metadata, prevHash, alg = null) {
   return enc.encode(
-    `kxco-audit-v1\n${seq}\n${timestamp}\n${operation}\n${prevHash ?? 'null'}\n${JSON.stringify(metadata)}`
+    `${versionLine('kxco-audit', alg)}\n${seq}\n${timestamp}\n${operation}\n${prevHash ?? 'null'}\n${JSON.stringify(metadata)}`
   )
 }
 
-function sealBytes(fromSeq, toSeq, prevRoot, rootHash, timestamp) {
+function sealBytes(fromSeq, toSeq, prevRoot, rootHash, timestamp, alg = null) {
   return enc.encode(
-    `kxco-audit-seal-v1\n${fromSeq}\n${toSeq}\n${prevRoot}\n${rootHash}\n${timestamp}`
+    `${versionLine('kxco-audit-seal', alg)}\n${fromSeq}\n${toSeq}\n${prevRoot}\n${rootHash}\n${timestamp}`
   )
 }
 
@@ -58,7 +87,7 @@ function candidatesFrom(publicKey) {
   return list.map((pk) => {
     if (!pk) throw new KxcoPqAuditError('verify: a public key was null or undefined')
     const bytes = new Uint8Array(pk)
-    return { kid: kidOf(bytes), publicKey: bytes }
+    return { kid: kidOf(bytes), publicKey: bytes, alg: algForKey(bytes, 'publicKeyBytes') }
   })
 }
 
@@ -89,8 +118,23 @@ function checkpointFrom(checkpoint) {
   return { count, tip }
 }
 
-function verifySignature(candidates, recordKid, msg, signatureB64, label) {
+/**
+ * Check one record's signature. `messageFor(alg)` builds the signed bytes for
+ * the algorithm the record states (null for a v1 record).
+ *
+ * The key decides the algorithm. A record stating the other set from the key
+ * its kid names is refused rather than tried, and a record with no kid is
+ * tried only against keys of the set it states.
+ */
+function verifySignature(candidates, recordKid, recordAlg, messageFor, signatureB64, label) {
   const sigHex = () => Buffer.from(fromB64url(signatureB64)).toString('hex')
+  const stated = statedAlg(recordAlg)
+  const alg    = stated ?? DEFAULT_ALG
+  const msg    = messageFor(stated)
+  const verifyWith = (c) => {
+    if (c.alg !== alg) return false
+    try { return SETS[alg].module.verify(c.publicKey, msg, sigHex()) } catch { return false }
+  }
 
   // A record that names its key is checked against that key and no other.
   // Falling back to the rest would let a swapped kid pass under a different
@@ -103,16 +147,15 @@ function verifySignature(candidates, recordKid, msg, signatureB64, label) {
                `${candidates.length} key(s) supplied`,
       }
     }
-    let ok
-    try { ok = mlDsa.verify(match.publicKey, msg, sigHex()) } catch { ok = false }
-    return ok ? { kid: match.kid } : { error: `${label}: signature invalid` }
+    if (match.alg !== null && match.alg !== alg) {
+      return { error: `${label}: signed as ${alg}, but kid ${recordKid} is an ${match.alg} key` }
+    }
+    return verifyWith(match) ? { kid: match.kid } : { error: `${label}: signature invalid` }
   }
 
-  // No kid: a log written before this version. Try each key.
+  // No kid: a log written before 1.4.0. Try each key of the stated set.
   for (const c of candidates) {
-    let ok
-    try { ok = mlDsa.verify(c.publicKey, msg, sigHex()) } catch { ok = false }
-    if (ok) return { kid: c.kid }
+    if (verifyWith(c)) return { kid: c.kid }
   }
   return { error: `${label}: signature invalid` }
 }
@@ -175,6 +218,24 @@ export class AuditLog {
     return this.#kidCache
   }
 
+  /** The set this log signs with, decided by its secret key. */
+  #signingAlg() {
+    const alg = algForKey(this.#keypair.secretKey, 'secretKeyBytes')
+    if (alg === null) throw new KxcoPqAuditError('the signing key is neither ML-DSA-65 nor ML-DSA-87')
+    return alg
+  }
+
+  /** Sign `bytesFor(stated)`; returns the base64url signature and the alg to record, if any. */
+  #sign(bytesFor) {
+    const alg    = this.#signingAlg()
+    const stated = alg === DEFAULT_ALG ? null : alg
+    const sig    = SETS[alg].module.sign(new Uint8Array(this.#keypair.secretKey), bytesFor(stated))
+    return { signature: b64url(Buffer.from(sig, 'hex')), stated }
+  }
+
+  /** The parameter set this log signs with: 'ML-DSA-65' or 'ML-DSA-87'. */
+  get signingAlg() { return this.#signingAlg() }
+
   /**
    * The kid a verifier needs for the records this log is writing. Publishing it
    * alongside the log means a reader does not have to derive it from a key they
@@ -231,11 +292,13 @@ export class AuditLog {
     // entry costs ~2ms and ~4.4KB and does not survive agent-scale volume.
     const entry = { seq, timestamp: ts, operation, metadata, prevHash: prev }
     if (!this.#sealed) {
-      const msg = signingBytes(seq, ts, operation, metadata, prev)
-      entry.signature = b64url(Buffer.from(mlDsa.sign(new Uint8Array(this.#keypair.secretKey), msg), 'hex'))
+      const { signature, stated } = this.#sign((alg) => signingBytes(seq, ts, operation, metadata, prev, alg))
+      entry.signature = signature
       // Which key signed this entry, so a log that outlives a rotation can say
       // so per entry rather than forcing one key across the whole file.
       entry.kid = this.#signingKid()
+      // ML-DSA-87 only; inside the signed bytes. An ML-DSA-65 entry is v1.
+      if (stated) entry.alg = stated
     }
 
     await this._store(entry)
@@ -282,8 +345,7 @@ export class AuditLog {
     const fromSeq   = run[0].seq
     const toSeq     = run[run.length - 1].seq
     const timestamp = new Date().toISOString()
-    const msg       = sealBytes(fromSeq, toSeq, prevRoot, rootHash, timestamp)
-    const signature = b64url(Buffer.from(mlDsa.sign(new Uint8Array(this.#keypair.secretKey), msg), 'hex'))
+    const { signature, stated } = this.#sign((alg) => sealBytes(fromSeq, toSeq, prevRoot, rootHash, timestamp, alg))
 
     const seal = {
       fromSeq,
@@ -297,6 +359,8 @@ export class AuditLog {
       // The signing key, distinct from institutionKid, which names the
       // institution rather than the key that produced this signature.
       kid: this.#signingKid(),
+      // ML-DSA-87 only; inside the signed bytes. An ML-DSA-65 seal is v1.
+      ...(stated && { alg: stated }),
     }
     await this._storeSeal(seal)
     this.#pending = []
@@ -359,8 +423,8 @@ export class AuditLog {
       }
 
       if (!this.#sealed) {
-        const msg = signingBytes(entry.seq, entry.timestamp, entry.operation, entry.metadata, entry.prevHash)
-        const res = verifySignature(candidates, entry.kid, msg, entry.signature, `entry ${count}`)
+        const msgFor = (alg) => signingBytes(entry.seq, entry.timestamp, entry.operation, entry.metadata, entry.prevHash, alg)
+        const res = verifySignature(candidates, entry.kid, entry.alg, msgFor, entry.signature, `entry ${count}`)
         if (res.error) return { valid: false, error: res.error }
         usedKids.add(res.kid)
       } else if (sealIndex < seals.length) {
@@ -431,8 +495,8 @@ export class AuditLog {
     if (rootOf(prevRoot, runHashes) !== s.rootHash) {
       return { valid: false, error: `seal ${index}: entries do not reproduce rootHash` }
     }
-    const msg = sealBytes(s.fromSeq, s.toSeq, s.prevRoot, s.rootHash, s.timestamp)
-    const res = verifySignature(candidates, s.kid, msg, s.signature, `seal ${index}`)
+    const msgFor = (alg) => sealBytes(s.fromSeq, s.toSeq, s.prevRoot, s.rootHash, s.timestamp, alg)
+    const res = verifySignature(candidates, s.kid, s.alg, msgFor, s.signature, `seal ${index}`)
     if (res.error) return { valid: false, error: res.error }
     usedKids.add(res.kid)
     return null

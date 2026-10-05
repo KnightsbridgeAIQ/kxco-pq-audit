@@ -109,7 +109,7 @@ In-memory log, for tests and short-lived processes. Use `FileAuditLog` to persis
 
 | Option | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `keypair` | `{ secretKey, publicKey }` | Yes | none | ML-DSA-65 keypair from `kxco-post-quantum` |
+| `keypair` | `{ secretKey, publicKey }` | Yes | none | ML-DSA-65 or ML-DSA-87 keypair from `kxco-post-quantum`. The key decides which set signs; `log.signingAlg` reports it |
 | `chain` | `KxcoChain` | No | `null` | Chain instance for checkpoint anchoring |
 | `checkpointEvery` | `number` | No | `100` | Anchor a checkpoint every N entries |
 | `institutionKid` | `string` | No | `null` | Identifier included in checkpoint metadata |
@@ -149,7 +149,7 @@ Appending needs the previous entry's hash, not the log, so it costs the same on 
 Replays the entire log from entry 0. For each entry, checks:
 
 1. `prevHash` matches the SHA-256 of the previous entry (including its signature)
-2. The ML-DSA-65 signature is valid over the canonical signing bytes
+2. The ML-DSA signature is valid over the canonical signing bytes, under the set the verifying key belongs to
 
 Returns `{ valid: true, count, kids }` or `{ valid: false, error }` describing the first failure. On a sealed log it checks the chain and every seal instead, and adds `sealedThrough` and `unsealed`.
 
@@ -178,6 +178,26 @@ Recording the kid is also what makes a log answerable to the rest of the stack. 
 
 Pair `verify()` with that lookup and a log proves both that it is intact and
 that every signing key was trusted: live revocation, from the KXCO network.
+
+#### ML-DSA-87 logs
+
+A log given an ML-DSA-87 keypair signs every entry, or every seal, with
+ML-DSA-87. Each such record carries `alg: 'ML-DSA-87'` and is signed over v1.1
+bytes: `kxco-audit-v1.1` (or `kxco-audit-seal-v1.1`) on the first line, the
+algorithm on the second, then the v1 fields unchanged, so the algorithm is
+inside the signed bytes. An ML-DSA-65 log writes exactly the v1 records it
+always has, with no `alg`, so it still verifies under 1.4.x and earlier.
+
+The verifier takes the algorithm from the key. A record whose `alg` names the
+other set from the key its `kid` selects is refused:
+
+```
+entry 0: signed as ML-DSA-65, but kid a1b2c3d4e5f60718 is an ML-DSA-87 key
+```
+
+A record with no `alg` is read as ML-DSA-65, which is how every record made
+before the field reads. A log that rotated from an ML-DSA-65 key to an ML-DSA-87
+key verifies as one artefact when both keys are passed.
 
 ### `log.seal()`
 
@@ -220,7 +240,7 @@ Sealed logs only. Entries appended since the last seal, without replaying the lo
 }
 ```
 
-`prevHash` is the SHA-256 of the complete previous entry (signature included). The first entry always has `prevHash: null`. The signing message covers every field except `signature` itself.
+`prevHash` is the SHA-256 of the complete previous entry (signature included). The first entry always has `prevHash: null`. The signing message covers every field except `signature` itself. An entry signed with ML-DSA-87 also carries `"alg": "ML-DSA-87"`, which the signing message covers.
 
 ## Sealed logs
 
