@@ -8,10 +8,16 @@ export interface AuditEntry {
   /** SHA-256 of the previous entry (entire JSON including signature). Null for the first entry. */
   prevHash:  string | null
   /**
-   * base64url ML-DSA-65 signature over a canonical representation of all other
+   * base64url ML-DSA signature over a canonical representation of all other
    * fields. Absent on a sealed log, where the run is signed once by `seal()`.
    */
   signature?: string
+  /**
+   * The signing algorithm, inside the signed bytes. Present on entries an
+   * ML-DSA-87 key signed; absent means ML-DSA-65, which is how every entry
+   * written before this field reads.
+   */
+  alg?: 'ML-DSA-87' | 'ML-DSA-65'
   /**
    * 16 hex characters identifying the key that signed this entry, present from
    * 1.4.0. Absent on entries written by earlier versions and on sealed logs,
@@ -34,8 +40,10 @@ export interface AuditSeal {
   /** base64url SHA-256 over prevRoot followed by every entry hash in the run. */
   rootHash:   string
   timestamp:  string
-  /** base64url ML-DSA-65 signature over the seal's canonical form. */
+  /** base64url ML-DSA signature over the seal's canonical form. */
   signature:  string
+  /** As on an entry: present when an ML-DSA-87 key sealed the run. */
+  alg?: 'ML-DSA-87' | 'ML-DSA-65'
   institutionKid: string | null
   /**
    * 16 hex characters identifying the key that signed this seal, present from
@@ -175,6 +183,9 @@ export declare class AuditLog {
 
   /** The kid of the key this log signs with. */
   readonly signingKid: string
+
+  /** The parameter set this log signs with, decided by its secret key. */
+  readonly signingAlg: 'ML-DSA-65' | 'ML-DSA-87'
 
   /**
    * Sign everything appended since the last seal, as one run. Returns the seal,
