@@ -1,7 +1,6 @@
 # Changelog
 
-## Unreleased
-
+## 1.5.0
 **ML-DSA-87 logs.** A log given an ML-DSA-87 keypair signs its entries, or its
 seals, with ML-DSA-87; `log.signingAlg` reports the set. Each such record
 carries `alg: 'ML-DSA-87'` and is signed over v1.1 bytes (`kxco-audit-v1.1`,
