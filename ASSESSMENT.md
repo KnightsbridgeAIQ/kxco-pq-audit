@@ -11,13 +11,13 @@ and publishes the lot. Cited here, proven there.
 ## What this package is
 
 An append-only record whose tampering is detectable and locatable. Entries are
-SHA-256 hash-chained and ML-DSA-65 signed, so **an edited or deleted entry
-fails `verify()` and the failure names the entry**. That is the guarantee, and
+SHA-256 hash-chained and ML-DSA-87 or ML-DSA-65 signed, as the key decides, so
+**an edited or deleted entry fails `verify()` and the failure names the entry**. That is the guarantee, and
 it is the reason to use this rather than a table with a timestamp column.
 
 **Two modes, and the second is what makes it viable at volume.** By default
 every entry carries its own signature. In sealed mode entries are chained and
-`seal()` signs the run once. Measured over a 10,000 entry run:
+`seal()` signs the run once. Measured over a 10,000 entry run with an ML-DSA-65 key:
 
 | | entries/s | bytes/entry | 10k run | verify |
 |---|---|---|---|---|

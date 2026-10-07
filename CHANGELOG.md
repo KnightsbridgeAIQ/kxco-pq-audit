@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.5.2 (2026-10-07)
+
+Documentation. No source change.
+
+ML-DSA-87 is the parameter set KXCO recommends for every new key. The quick
+start now makes an ML-DSA-87 keypair with `mlDsa87.ml_dsa87.keygen()`, and its
+`key.rotate` example names `ml-dsa-87`. The entry format example is an
+ML-DSA-87 entry, with the `alg` field it carries.
+
+"Sealed logs" said every entry carries its own ML-DSA-65 signature by default.
+The key decides the set; the default is one signature per entry. It now says
+so, and that the figures were measured with an ML-DSA-65 key.
+An ML-DSA-87 signature is 4,627 bytes, 6,170 base64url characters against 4,412 for ML-DSA-65, per FIPS 204, table 2.
+ASSESSMENT.md and the type declarations name ML-DSA-87 first.
+
+`DEFAULT_ALG` stays `ML-DSA-65`. It is how a record with no `alg` reads, and
+every such record predates the field. An ML-DSA-65 key still writes v1 records
+with no `alg`, so they verify under 1.4.x. It never picks the set a log signs
+with, and its comment now says so.
+
 ## 1.5.1
 Documentation. No source change.
 
