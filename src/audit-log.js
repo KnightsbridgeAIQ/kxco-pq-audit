@@ -18,6 +18,8 @@ const SETS = Object.freeze({
   'ML-DSA-65': Object.freeze({ module: mlDsa,   publicKeyBytes: 1952, secretKeyBytes: 4032 }),
   'ML-DSA-87': Object.freeze({ module: mlDsa87, publicKeyBytes: 2592, secretKeyBytes: 4896 }),
 })
+// How a record with no `alg` reads, and so the set whose records carry none.
+// It never picks the set a log signs with: the key's length does.
 const DEFAULT_ALG = 'ML-DSA-65'
 
 function algForKey(key, field) {
@@ -233,7 +235,7 @@ export class AuditLog {
     return { signature: b64url(Buffer.from(sig, 'hex')), stated }
   }
 
-  /** The parameter set this log signs with: 'ML-DSA-65' or 'ML-DSA-87'. */
+  /** The parameter set this log signs with: 'ML-DSA-87' or 'ML-DSA-65'. */
   get signingAlg() { return this.#signingAlg() }
 
   /**

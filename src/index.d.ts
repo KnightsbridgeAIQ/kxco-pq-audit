@@ -143,7 +143,8 @@ export interface AuditLogOptions {
  * In-memory tamper-evident audit log.
  *
  * Every entry is SHA-256 hash-chained to its predecessor, and signed with
- * ML-DSA-65 either per entry or, with `sealed: true`, once per run.
+ * ML-DSA-87 or ML-DSA-65, as the key decides, either per entry or, with
+ * `sealed: true`, once per run.
  * `verify()` replays the entire chain — any gap, reorder, or edit breaks either
  * the chain or a signature.
  *
@@ -185,7 +186,7 @@ export declare class AuditLog {
   readonly signingKid: string
 
   /** The parameter set this log signs with, decided by its secret key. */
-  readonly signingAlg: 'ML-DSA-65' | 'ML-DSA-87'
+  readonly signingAlg: 'ML-DSA-87' | 'ML-DSA-65'
 
   /**
    * Sign everything appended since the last seal, as one run. Returns the seal,

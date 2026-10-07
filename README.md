@@ -52,9 +52,9 @@ npm install kxco-pq-audit
 ```js
 import { FileAuditLog } from 'kxco-pq-audit'
 import { KxcoChain }    from 'kxco-pq-chain'   // optional, for anchoring
-import { mlDsa }        from 'kxco-post-quantum'
+import { mlDsa87 }      from 'kxco-post-quantum'
 
-const keypair = mlDsa.ml_dsa65.keygen()
+const keypair = mlDsa87.ml_dsa87.keygen()
 
 // Persist to disk, anchor a checkpoint on Armature L1 every 50 entries
 const chain = new KxcoChain({
@@ -70,7 +70,7 @@ const log = new FileAuditLog({
 
 await log.append('user.login',  { userId: 'u_001', ip: '10.0.0.1' })
 await log.append('wire.auth',   { txId: 'tx_abc', amount: 50000, currency: 'USD' })
-await log.append('key.rotate',  { keyId: 'signing-key-v2', alg: 'ml-dsa-65' })
+await log.append('key.rotate',  { keyId: 'signing-key-v2', alg: 'ml-dsa-87' })
 
 const result = await log.verify(keypair.publicKey)
 // { valid: true, count: 3 }
@@ -109,7 +109,7 @@ In-memory log, for tests and short-lived processes. Use `FileAuditLog` to persis
 
 | Option | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `keypair` | `{ secretKey, publicKey }` | Yes | none | ML-DSA-65 or ML-DSA-87 keypair from `kxco-post-quantum`. The key decides which set signs; `log.signingAlg` reports it |
+| `keypair` | `{ secretKey, publicKey }` | Yes | none | ML-DSA-87 or ML-DSA-65 keypair from `kxco-post-quantum`. The key decides which set signs; `log.signingAlg` reports it |
 | `chain` | `KxcoChain` | No | `null` | Chain instance for checkpoint anchoring |
 | `checkpointEvery` | `number` | No | `100` | Anchor a checkpoint every N entries |
 | `institutionKid` | `string` | No | `null` | Identifier included in checkpoint metadata |
@@ -236,22 +236,23 @@ Sealed logs only. Entries appended since the last seal, without replaying the lo
   "operation": "wire.auth",
   "metadata": { "txId": "tx_abc", "amount": 50000 },
   "prevHash": null,
-  "signature": "<base64url ML-DSA-65>"
+  "signature": "<base64url ML-DSA-87>",
+  "alg": "ML-DSA-87"
 }
 ```
 
-`prevHash` is the SHA-256 of the complete previous entry (signature included). The first entry always has `prevHash: null`. The signing message covers every field except `signature` itself. An entry signed with ML-DSA-87 also carries `"alg": "ML-DSA-87"`, which the signing message covers.
+`prevHash` is the SHA-256 of the complete previous entry (signature included). The first entry always has `prevHash: null`. The signing message covers every field except `signature` itself. Only an entry signed with ML-DSA-87 carries `alg`, which the signing message covers. An entry signed with ML-DSA-65 carries none, exactly as before.
 
 ## Sealed logs
 
-By default every entry carries its own ML-DSA-65 signature. That signature is also the entire cost of the log. Measured over 10,000 entries, per [ASSESSMENT.md](./ASSESSMENT.md):
+By default every entry carries its own signature, made under the set of the log's key. That signature is also the entire cost of the log. Measured over 10,000 entries with an ML-DSA-65 key, per [ASSESSMENT.md](./ASSESSMENT.md):
 
 | | entries/s | bytes/entry | 10k run | verify |
 |---|---|---|---|---|
 | signature per entry | 129 | 4,794 | 45.7 MB | 20.1 s |
 | signature per run | 46,544 | 367 | 3.5 MB | 0.11 s |
 
-Of those 4,794 bytes, per [ASSESSMENT.md](./ASSESSMENT.md), 4,412 are the base64url-encoded signature, which is why sealed mode is the one for real entry volume.
+Of those 4,794 bytes, per [ASSESSMENT.md](./ASSESSMENT.md), 4,412 are the base64url-encoded signature, which is why sealed mode is the one for real entry volume. An ML-DSA-87 signature is 4,627 bytes ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final), table 2), or 6,170 base64url characters, so an entry signed with it is larger and sealed mode saves more.
 
 `sealed: true` keeps the hash chain on every entry and moves the signature to the run:
 
