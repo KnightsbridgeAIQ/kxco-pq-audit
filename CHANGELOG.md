@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.1
+Documentation. No source change.
+
+The npm description and the README lead name ML-DSA-87 beside ML-DSA-65: the
+log has signed and verified both since 1.5.0. The description no longer quotes
+the sealed-mode rate, which was measured with an ML-DSA-65 key; the README keeps
+it with that context.
+
 ## 1.5.0
 **ML-DSA-87 logs.** A log given an ML-DSA-87 keypair signs its entries, or its
 seals, with ML-DSA-87; `log.signingAlg` reports the set. Each such record
