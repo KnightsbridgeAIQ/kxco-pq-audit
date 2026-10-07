@@ -10,7 +10,7 @@
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![node](https://img.shields.io/node/v/kxco-pq-audit.svg)](https://nodejs.org)
 
-Every operation produces a signed entry: an ML-DSA-65 signature, SHA-256 chained to the previous entry. `verify()` replays the entire log, and any gap, reorder or edit breaks the chain or a signature.
+Every operation produces a signed entry: an ML-DSA-87 or ML-DSA-65 signature (the key decides), SHA-256 chained to the previous entry. `verify()` replays the entire log, and any gap, reorder or edit breaks the chain or a signature.
 
 - **Tampering is detectable and locatable.** `verify()` replays the log from entry 0 and names the first entry that fails.
 - **Fast enough for real volume.** Sealed mode signs once per run: 46,544 entries a second at 367 bytes an entry, with 10,000 entries verified in 0.11 s, per [Sealed logs](#sealed-logs).
@@ -323,7 +323,7 @@ above it.
 
 ## Security
 
-**ML-DSA-65** (NIST FIPS 204) via [`kxco-post-quantum`](https://www.npmjs.com/package/kxco-post-quantum), running on the OpenSSL 3.5 primitives where the runtime provides them. No custom cryptography.
+**ML-DSA-87 and ML-DSA-65** (NIST FIPS 204) via [`kxco-post-quantum`](https://www.npmjs.com/package/kxco-post-quantum), running on the OpenSSL 3.5 primitives where the runtime provides them. No custom cryptography.
 
 Evidenced, and reproducible on your own machine:
 

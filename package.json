@@ -1,8 +1,9 @@
 {
   "name": "kxco-pq-audit",
-  "version": "1.5.0",
-  "description": "Tamper-evident post-quantum audit trail for regulated institutions. ML-DSA-65 signed, SHA-256 hash-chained entries: any edit, gap or reorder fails verification and names the entry. 46,544 entries a second sealed, with checkpoints anchored on Armature L1.",
+  "version": "1.5.1",
+  "description": "Tamper-evident post-quantum audit trail for regulated institutions. ML-DSA-87 or ML-DSA-65 signed, SHA-256 hash-chained entries: any edit, gap or reorder fails verification and names the entry. Checkpoints anchored on Armature L1.",
   "keywords": [
+    "ml-dsa-87",
     "post-quantum",
     "pqc",
     "audit-log",
