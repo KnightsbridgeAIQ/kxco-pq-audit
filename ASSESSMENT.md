@@ -121,7 +121,7 @@ All checkable without asking us for anything.
 or ten million: a new entry needs the previous hash and the next seq, never the
 log. The throughput table above is the sizing guide.
 
-**Runtime.** Node 20.19 and later, with Node 24 and later running the primitives
+**Runtime.** Node 22.12 and later, with Node 24 and later running the primitives
 in OpenSSL 3.5 for roughly 4x to 8x per operation.
 
 ## Correcting this document
