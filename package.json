@@ -1,6 +1,6 @@
 {
   "name": "kxco-pq-audit",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Tamper-evident post-quantum audit trail for regulated institutions. ML-DSA-87 or ML-DSA-65 signed, SHA-256 hash-chained entries: any edit, gap or reorder fails verification and names the entry. Checkpoints anchored on Armature L1.",
   "keywords": [
     "ml-dsa-87",
@@ -72,7 +72,7 @@
   },
   "dependencies": {
     "@noble/hashes": "2.4.0",
-    "kxco-post-quantum": "^1.6.0"
+    "kxco-post-quantum": "^1.13.0"
   },
   "scripts": {
     "test": "node --test --test-timeout=30000 test/audit.test.js test/property.test.js test/ml-dsa-87.test.js",
